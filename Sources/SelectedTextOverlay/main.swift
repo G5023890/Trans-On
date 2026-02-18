@@ -51,7 +51,7 @@ final class AppSettings {
     private(set) var launchAtLogin: Bool
 
     private init() {
-        let defaultCode = UInt32(kVK_ANSI_P)
+        let defaultCode = UInt32(kVK_ANSI_L)
         let defaultModifiers = UInt32(cmdKey | shiftKey)
 
         let storedCode = defaults.object(forKey: hotKeyCodeKey) as? Int
@@ -309,7 +309,29 @@ final class SelectionService {
 }
 
 final class TranslationService {
-    private let session = URLSession(configuration: .ephemeral)
+    private struct ParagraphItem {
+        let index: Int
+        let text: String
+    }
+
+    private enum Segment {
+        case paragraph(Int)
+        case separator(String)
+    }
+
+    private let session: URLSession
+    private let workerQueue = DispatchQueue(label: "transon.translation.worker", qos: .userInitiated)
+    private let maxChunkChars = 1800
+    private let maxBatchParagraphs = 6
+    private let maxRetries = 3
+
+    init() {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 20
+        config.waitsForConnectivity = true
+        session = URLSession(configuration: config)
+    }
 
     func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,8 +340,232 @@ final class TranslationService {
             return
         }
 
-        if containsCyrillic(trimmed) {
+        if shouldSkipTranslation(trimmed) {
             completion(trimmed)
+            return
+        }
+
+        workerQueue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion(trimmed) }
+                return
+            }
+
+            let (segments, paragraphs) = self.extractParagraphs(from: trimmed)
+            let translatable = paragraphs.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let chunks = self.makeChunks(from: translatable, maxChars: self.maxChunkChars, maxParagraphs: self.maxBatchParagraphs)
+
+            guard !chunks.isEmpty else {
+                DispatchQueue.main.async { completion(trimmed) }
+                return
+            }
+
+            self.translateChunks(chunks, at: 0, translatedByParagraph: [:]) { translatedByParagraph in
+                let merged = self.reassemble(segments: segments, paragraphs: paragraphs, translatedByParagraph: translatedByParagraph)
+                DispatchQueue.main.async {
+                    completion(merged ?? trimmed)
+                }
+            }
+        }
+    }
+
+    private func extractParagraphs(from text: String) -> ([Segment], [ParagraphItem]) {
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let separatorRegex = try? NSRegularExpression(pattern: #"\n\s*\n+"#)
+        let matches = separatorRegex?.matches(in: text, options: [], range: fullRange) ?? []
+
+        var segments: [Segment] = []
+        var paragraphs: [ParagraphItem] = []
+        var cursor = 0
+
+        for match in matches {
+            let paragraphRange = NSRange(location: cursor, length: match.range.location - cursor)
+            let paragraph = nsText.substring(with: paragraphRange)
+            let paragraphIndex = paragraphs.count
+            paragraphs.append(ParagraphItem(index: paragraphIndex, text: paragraph))
+            segments.append(.paragraph(paragraphIndex))
+
+            let separator = nsText.substring(with: match.range)
+            segments.append(.separator(separator))
+            cursor = match.range.location + match.range.length
+        }
+
+        let tailRange = NSRange(location: cursor, length: nsText.length - cursor)
+        let tail = nsText.substring(with: tailRange)
+        let tailIndex = paragraphs.count
+        paragraphs.append(ParagraphItem(index: tailIndex, text: tail))
+        segments.append(.paragraph(tailIndex))
+
+        return (segments, paragraphs)
+    }
+
+    private func makeChunks(from paragraphs: [ParagraphItem], maxChars: Int, maxParagraphs: Int) -> [[ParagraphItem]] {
+        var result: [[ParagraphItem]] = []
+        var current: [ParagraphItem] = []
+        var currentChars = 0
+
+        for paragraph in paragraphs {
+            let chars = paragraph.text.count
+            if current.isEmpty {
+                current = [paragraph]
+                currentChars = chars
+                continue
+            }
+
+            if currentChars + chars <= maxChars && current.count < maxParagraphs {
+                current.append(paragraph)
+                currentChars += chars
+            } else {
+                result.append(current)
+                current = [paragraph]
+                currentChars = chars
+            }
+        }
+
+        if !current.isEmpty {
+            result.append(current)
+        }
+
+        return result
+    }
+
+    private func translateChunks(
+        _ chunks: [[ParagraphItem]],
+        at index: Int,
+        translatedByParagraph: [Int: String],
+        completion: @escaping ([Int: String]) -> Void
+    ) {
+        guard index < chunks.count else {
+            completion(translatedByParagraph)
+            return
+        }
+
+        let chunk = chunks[index]
+        translateChunkWithRetry(chunk, attempt: 1) { [weak self] translated in
+            guard let self else {
+                completion(translatedByParagraph)
+                return
+            }
+
+            var merged = translatedByParagraph
+            for (offset, item) in chunk.enumerated() {
+                merged[item.index] = translated[offset]
+            }
+
+            let delay = Double.random(in: 0.3...0.5)
+            self.workerQueue.asyncAfter(deadline: .now() + delay) {
+                self.translateChunks(chunks, at: index + 1, translatedByParagraph: merged, completion: completion)
+            }
+        }
+    }
+
+    private func translateChunkWithRetry(
+        _ chunk: [ParagraphItem],
+        attempt: Int,
+        completion: @escaping ([String]) -> Void
+    ) {
+        requestBatchTranslation(for: chunk.map(\.text)) { [weak self] translated in
+            guard let self else {
+                completion(chunk.map(\.text))
+                return
+            }
+
+            if let translated, translated.count == chunk.count {
+                completion(translated)
+                return
+            }
+
+            guard attempt < self.maxRetries else {
+                self.translateChunkIndividually(chunk, at: 0, translated: [], completion: completion)
+                return
+            }
+
+            let backoff = min(1.6, 0.35 * pow(2.0, Double(attempt - 1)))
+            let jitter = Double.random(in: 0.08...0.2)
+            self.workerQueue.asyncAfter(deadline: .now() + backoff + jitter) {
+                self.translateChunkWithRetry(chunk, attempt: attempt + 1, completion: completion)
+            }
+        }
+    }
+
+    private func translateChunkIndividually(
+        _ chunk: [ParagraphItem],
+        at index: Int,
+        translated: [String],
+        completion: @escaping ([String]) -> Void
+    ) {
+        guard index < chunk.count else {
+            completion(translated)
+            return
+        }
+
+        let paragraph = chunk[index].text
+        translateParagraphWithRetry(paragraph, attempt: 1) { [weak self] translatedParagraph in
+            guard let self else {
+                completion(translated + [translatedParagraph ?? paragraph])
+                return
+            }
+
+            let next = translated + [translatedParagraph ?? paragraph]
+            self.translateChunkIndividually(chunk, at: index + 1, translated: next, completion: completion)
+        }
+    }
+
+    private func translateParagraphWithRetry(
+        _ text: String,
+        attempt: Int,
+        completion: @escaping (String?) -> Void
+    ) {
+        let parts = splitLongParagraph(text, maxChars: maxChunkChars)
+        translateParagraphParts(parts, at: 0, translatedParts: [], attempt: attempt) { translatedParts in
+            guard let translatedParts else {
+                completion(nil)
+                return
+            }
+            completion(translatedParts.joined())
+        }
+    }
+
+    private func translateParagraphParts(
+        _ parts: [String],
+        at index: Int,
+        translatedParts: [String],
+        attempt: Int,
+        completion: @escaping ([String]?) -> Void
+    ) {
+        guard index < parts.count else {
+            completion(translatedParts)
+            return
+        }
+
+        requestBatchTranslation(for: [parts[index]]) { [weak self] translated in
+            guard let self else {
+                completion(nil)
+                return
+            }
+
+            if let piece = translated?.first {
+                self.translateParagraphParts(parts, at: index + 1, translatedParts: translatedParts + [piece], attempt: 1, completion: completion)
+                return
+            }
+
+            guard attempt < self.maxRetries else {
+                completion(nil)
+                return
+            }
+
+            let backoff = min(1.6, 0.35 * pow(2.0, Double(attempt - 1)))
+            let jitter = Double.random(in: 0.08...0.2)
+            self.workerQueue.asyncAfter(deadline: .now() + backoff + jitter) {
+                self.translateParagraphParts(parts, at: index, translatedParts: translatedParts, attempt: attempt + 1, completion: completion)
+            }
+        }
+    }
+
+    private func requestBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+        guard !paragraphs.isEmpty else {
+            completion([])
             return
         }
 
@@ -328,43 +574,136 @@ final class TranslationService {
             return
         }
 
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "client", value: "gtx"),
             URLQueryItem(name: "sl", value: "auto"),
             URLQueryItem(name: "tl", value: "ru"),
-            URLQueryItem(name: "dt", value: "t"),
-            URLQueryItem(name: "q", value: trimmed)
+            URLQueryItem(name: "dt", value: "t")
         ]
+        queryItems.append(contentsOf: paragraphs.map { URLQueryItem(name: "q", value: $0) })
+        components.queryItems = queryItems
 
         guard let url = components.url else {
             completion(nil)
             return
         }
 
-        session.dataTask(with: url) { data, _, error in
-            let translated: String?
-            if error != nil || data == nil {
-                translated = nil
-            } else {
-                translated = Self.parseTranslatedText(from: data!)
-            }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
 
-            DispatchQueue.main.async {
-                completion(translated)
+        session.dataTask(with: request) { data, response, error in
+            guard
+                error == nil,
+                let httpResponse = response as? HTTPURLResponse,
+                (200...299).contains(httpResponse.statusCode),
+                let data
+            else {
+                completion(nil)
+                return
             }
+            completion(Self.parseBatchTranslatedTexts(from: data, expectedCount: paragraphs.count))
         }.resume()
     }
 
-    private static func parseTranslatedText(from data: Data) -> String? {
+    private static func parseBatchTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
-            let sentences = root.first as? [Any]
+            let first = root.first as? [Any]
         else {
             return nil
         }
 
+        if expectedCount == 1, let single = joinSentenceChunks(from: first) {
+            return [single]
+        }
+
+        guard first.count == expectedCount else {
+            return nil
+        }
+
+        var translations: [String] = []
+        translations.reserveCapacity(expectedCount)
+
+        for element in first {
+            guard let elementArray = element as? [Any], let text = joinSentenceChunks(from: elementArray) else {
+                return nil
+            }
+            translations.append(text)
+        }
+
+        return translations
+    }
+
+    private func splitLongParagraph(_ text: String, maxChars: Int) -> [String] {
+        guard text.count > maxChars else { return [text] }
+
+        let sentenceRegex = try? NSRegularExpression(pattern: #"(?<=[.!?])\s+"#)
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        let matches = sentenceRegex?.matches(in: text, options: [], range: range) ?? []
+
+        var sentences: [String] = []
+        var cursor = 0
+        let nsText = text as NSString
+
+        for match in matches {
+            let sentenceRange = NSRange(location: cursor, length: match.range.location - cursor)
+            let sentence = nsText.substring(with: sentenceRange)
+            if !sentence.isEmpty {
+                sentences.append(sentence)
+            }
+            let separator = nsText.substring(with: match.range)
+            if !separator.isEmpty {
+                sentences.append(separator)
+            }
+            cursor = match.range.location + match.range.length
+        }
+
+        if cursor < nsText.length {
+            sentences.append(nsText.substring(from: cursor))
+        }
+
+        if sentences.isEmpty {
+            return hardSplit(text, maxChars: maxChars)
+        }
+
         var chunks: [String] = []
-        for sentence in sentences {
+        var current = ""
+        for token in sentences {
+            if current.count + token.count <= maxChars {
+                current += token
+                continue
+            }
+            if !current.isEmpty {
+                chunks.append(current)
+                current = ""
+            }
+            if token.count > maxChars {
+                chunks.append(contentsOf: hardSplit(token, maxChars: maxChars))
+            } else {
+                current = token
+            }
+        }
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+
+        return chunks.isEmpty ? hardSplit(text, maxChars: maxChars) : chunks
+    }
+
+    private func hardSplit(_ text: String, maxChars: Int) -> [String] {
+        var parts: [String] = []
+        var start = text.startIndex
+        while start < text.endIndex {
+            let end = text.index(start, offsetBy: maxChars, limitedBy: text.endIndex) ?? text.endIndex
+            parts.append(String(text[start..<end]))
+            start = end
+        }
+        return parts
+    }
+
+    private static func joinSentenceChunks(from source: [Any]) -> String? {
+        var chunks: [String] = []
+        for sentence in source {
             guard
                 let sentenceArray = sentence as? [Any],
                 let translatedChunk = sentenceArray.first as? String
@@ -378,8 +717,39 @@ final class TranslationService {
         return joined.isEmpty ? nil : joined
     }
 
-    private func containsCyrillic(_ text: String) -> Bool {
-        text.range(of: "[А-Яа-яЁё]", options: .regularExpression) != nil
+    private func reassemble(
+        segments: [Segment],
+        paragraphs: [ParagraphItem],
+        translatedByParagraph: [Int: String]
+    ) -> String? {
+        var output = ""
+        for segment in segments {
+            switch segment {
+            case .separator(let separator):
+                output += separator
+            case .paragraph(let index):
+                if let translated = translatedByParagraph[index] {
+                    output += translated
+                } else if paragraphs.indices.contains(index) {
+                    let original = paragraphs[index].text
+                    output += original
+                }
+            }
+        }
+        return output.isEmpty ? nil : output
+    }
+
+    private func shouldSkipTranslation(_ text: String) -> Bool {
+        let hasCyrillic = text.range(of: "[А-Яа-яЁё]", options: .regularExpression) != nil
+        return hasCyrillic && !containsLatin(text) && !containsHebrew(text)
+    }
+
+    private func containsLatin(_ text: String) -> Bool {
+        text.range(of: "[A-Za-z]", options: .regularExpression) != nil
+    }
+
+    private func containsHebrew(_ text: String) -> Bool {
+        text.range(of: "[\\u0590-\\u05FF]", options: .regularExpression) != nil
     }
 }
 
