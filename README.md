@@ -19,6 +19,26 @@ Trans-On - macOS-приложение для быстрого получения
   - размер шрифта;
   - автозапуск при входе в систему.
 
+## Способ перевода
+
+В меню приложения доступно переключение:
+
+- `⌘Я -> Способ перевода -> Google Web (gtx)` (неофициальный endpoint).
+- `⌘Я -> Способ перевода -> Google Cloud API` (официальный API).
+
+Для `Google Cloud API` нужен API key. Можно задать его так:
+
+- `⌘Я -> Способ перевода -> Google Cloud API key…`
+- Ключ сохраняется в macOS Keychain.
+
+Или через переменную окружения:
+
+```bash
+export GOOGLE_CLOUD_TRANSLATE_API_KEY="YOUR_API_KEY"
+# или
+export GOOGLE_API_KEY="YOUR_API_KEY"
+```
+
 ## Запуск в режиме разработки
 
 ```bash
@@ -49,4 +69,5 @@ swift run
 
 ## Ограничения
 
-Сейчас перевод выполняется через endpoint `translate.googleapis.com/translate_a/single` (`client=gtx`), это неофициальный API для production.
+- `Google Web (gtx)` использует неофициальный endpoint и не подходит для production.
+- `Google Cloud API` требует настроенный ключ и включённый биллинг в Google Cloud.

@@ -11,7 +11,8 @@ let package = Package(
             name: "SelectedTextOverlay",
             linkerSettings: [
                 .linkedFramework("AppKit"),
-                .linkedFramework("Carbon")
+                .linkedFramework("Carbon"),
+                .linkedFramework("Security")
             ]
         )
     ]

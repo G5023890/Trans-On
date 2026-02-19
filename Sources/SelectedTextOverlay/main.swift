@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Security
 import ServiceManagement
 
 struct HotKeyChoice {
@@ -36,19 +37,105 @@ struct HotKeyChoice {
     ]
 }
 
+enum TranslationProvider: Int {
+    case webGtx = 0
+    case googleCloud = 1
+
+    var title: String {
+        switch self {
+        case .webGtx:
+            return "Google Web (gtx)"
+        case .googleCloud:
+            return "Google Cloud API"
+        }
+    }
+}
+
+final class KeychainStore {
+    private let service: String
+
+    init(service: String) {
+        self.service = service
+    }
+
+    func read(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    @discardableResult
+    func upsert(value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+
+        let attributes: [String: Any] = [
+            kSecValueData as String: data
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+
+        if updateStatus == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            return addStatus == errSecSuccess
+        }
+
+        return false
+    }
+
+    @discardableResult
+    func delete(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+}
+
 final class AppSettings {
     static let shared = AppSettings()
 
     private let defaults = UserDefaults.standard
+    private let keychain = KeychainStore(service: "com.grigorym.SelectedTextOverlay")
     private let hotKeyCodeKey = "hotKeyCode"
     private let hotKeyModifiersKey = "hotKeyModifiers"
     private let fontSizeKey = "fontSize"
     private let launchAtLoginKey = "launchAtLogin"
+    private let translationProviderKey = "translationProvider"
+    private let legacyGoogleCloudApiKeyKey = "googleCloudApiKey"
+    private let googleCloudApiKeyAccount = "googleCloudApiKey"
 
     private(set) var hotKeyCode: UInt32
     private(set) var hotKeyModifiers: UInt32
     private(set) var fontSize: CGFloat
     private(set) var launchAtLogin: Bool
+    private(set) var translationProvider: TranslationProvider
+    private(set) var googleCloudApiKey: String
 
     private init() {
         let defaultCode = UInt32(kVK_ANSI_L)
@@ -62,6 +149,20 @@ final class AppSettings {
         hotKeyModifiers = UInt32(storedModifiers ?? Int(defaultModifiers))
         fontSize = CGFloat(storedFont ?? 22)
         launchAtLogin = defaults.bool(forKey: launchAtLoginKey)
+        translationProvider = TranslationProvider(rawValue: defaults.integer(forKey: translationProviderKey)) ?? .webGtx
+        let keychainValue = keychain.read(account: googleCloudApiKeyAccount)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !keychainValue.isEmpty {
+            googleCloudApiKey = keychainValue
+        } else {
+            let legacy = defaults.string(forKey: legacyGoogleCloudApiKeyKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !legacy.isEmpty {
+                _ = keychain.upsert(value: legacy, account: googleCloudApiKeyAccount)
+                defaults.removeObject(forKey: legacyGoogleCloudApiKeyKey)
+            }
+            googleCloudApiKey = legacy
+        }
     }
 
     func setHotKey(code: UInt32, modifiers: UInt32) {
@@ -80,6 +181,25 @@ final class AppSettings {
     func setLaunchAtLogin(_ newValue: Bool) {
         launchAtLogin = newValue
         defaults.set(newValue, forKey: launchAtLoginKey)
+    }
+
+    func setTranslationProvider(_ provider: TranslationProvider) {
+        translationProvider = provider
+        defaults.set(provider.rawValue, forKey: translationProviderKey)
+    }
+
+    func setGoogleCloudApiKey(_ newValue: String) {
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        googleCloudApiKey = trimmed
+        defaults.removeObject(forKey: legacyGoogleCloudApiKeyKey)
+        if trimmed.isEmpty {
+            _ = keychain.delete(account: googleCloudApiKeyAccount)
+            return
+        }
+        let saved = keychain.upsert(value: trimmed, account: googleCloudApiKeyAccount)
+        if !saved {
+            NSLog("Failed to save Google Cloud API key to Keychain.")
+        }
     }
 }
 
@@ -319,13 +439,15 @@ final class TranslationService {
         case separator(String)
     }
 
+    private let settings: AppSettings
     private let session: URLSession
     private let workerQueue = DispatchQueue(label: "transon.translation.worker", qos: .userInitiated)
     private let maxChunkChars = 1800
     private let maxBatchParagraphs = 6
     private let maxRetries = 3
 
-    init() {
+    init(settings: AppSettings) {
+        self.settings = settings
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 12
         config.timeoutIntervalForResource = 20
@@ -335,6 +457,7 @@ final class TranslationService {
 
     func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = settings.translationProvider
         guard !trimmed.isEmpty else {
             completion(nil)
             return
@@ -353,14 +476,14 @@ final class TranslationService {
 
             let (segments, paragraphs) = self.extractParagraphs(from: trimmed)
             let translatable = paragraphs.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let chunks = self.makeChunks(from: translatable, maxChars: self.maxChunkChars, maxParagraphs: self.maxBatchParagraphs)
+            let chunks = self.makeChunks(from: translatable, maxChars: self.maxChunkChars, maxParagraphs: self.maxBatchParagraphs)
 
             guard !chunks.isEmpty else {
                 DispatchQueue.main.async { completion(trimmed) }
                 return
             }
 
-            self.translateChunks(chunks, at: 0, translatedByParagraph: [:]) { translatedByParagraph in
+            self.translateChunks(chunks, at: 0, provider: provider, translatedByParagraph: [:]) { translatedByParagraph in
                 let merged = self.reassemble(segments: segments, paragraphs: paragraphs, translatedByParagraph: translatedByParagraph)
                 DispatchQueue.main.async {
                     completion(merged ?? trimmed)
@@ -433,6 +556,7 @@ final class TranslationService {
     private func translateChunks(
         _ chunks: [[ParagraphItem]],
         at index: Int,
+        provider: TranslationProvider,
         translatedByParagraph: [Int: String],
         completion: @escaping ([Int: String]) -> Void
     ) {
@@ -442,7 +566,7 @@ final class TranslationService {
         }
 
         let chunk = chunks[index]
-        translateChunkWithRetry(chunk, attempt: 1) { [weak self] translated in
+        translateChunkWithRetry(chunk, provider: provider, attempt: 1) { [weak self] translated in
             guard let self else {
                 completion(translatedByParagraph)
                 return
@@ -455,17 +579,18 @@ final class TranslationService {
 
             let delay = Double.random(in: 0.3...0.5)
             self.workerQueue.asyncAfter(deadline: .now() + delay) {
-                self.translateChunks(chunks, at: index + 1, translatedByParagraph: merged, completion: completion)
+                self.translateChunks(chunks, at: index + 1, provider: provider, translatedByParagraph: merged, completion: completion)
             }
         }
     }
 
     private func translateChunkWithRetry(
         _ chunk: [ParagraphItem],
+        provider: TranslationProvider,
         attempt: Int,
         completion: @escaping ([String]) -> Void
     ) {
-        requestBatchTranslation(for: chunk.map(\.text)) { [weak self] translated in
+        requestBatchTranslation(for: chunk.map(\.text), provider: provider) { [weak self] translated in
             guard let self else {
                 completion(chunk.map(\.text))
                 return
@@ -477,20 +602,21 @@ final class TranslationService {
             }
 
             guard attempt < self.maxRetries else {
-                self.translateChunkIndividually(chunk, at: 0, translated: [], completion: completion)
+                self.translateChunkIndividually(chunk, provider: provider, at: 0, translated: [], completion: completion)
                 return
             }
 
             let backoff = min(1.6, 0.35 * pow(2.0, Double(attempt - 1)))
             let jitter = Double.random(in: 0.08...0.2)
             self.workerQueue.asyncAfter(deadline: .now() + backoff + jitter) {
-                self.translateChunkWithRetry(chunk, attempt: attempt + 1, completion: completion)
+                self.translateChunkWithRetry(chunk, provider: provider, attempt: attempt + 1, completion: completion)
             }
         }
     }
 
     private func translateChunkIndividually(
         _ chunk: [ParagraphItem],
+        provider: TranslationProvider,
         at index: Int,
         translated: [String],
         completion: @escaping ([String]) -> Void
@@ -501,24 +627,25 @@ final class TranslationService {
         }
 
         let paragraph = chunk[index].text
-        translateParagraphWithRetry(paragraph, attempt: 1) { [weak self] translatedParagraph in
+        translateParagraphWithRetry(paragraph, provider: provider, attempt: 1) { [weak self] translatedParagraph in
             guard let self else {
                 completion(translated + [translatedParagraph ?? paragraph])
                 return
             }
 
             let next = translated + [translatedParagraph ?? paragraph]
-            self.translateChunkIndividually(chunk, at: index + 1, translated: next, completion: completion)
+            self.translateChunkIndividually(chunk, provider: provider, at: index + 1, translated: next, completion: completion)
         }
     }
 
     private func translateParagraphWithRetry(
         _ text: String,
+        provider: TranslationProvider,
         attempt: Int,
         completion: @escaping (String?) -> Void
     ) {
         let parts = splitLongParagraph(text, maxChars: maxChunkChars)
-        translateParagraphParts(parts, at: 0, translatedParts: [], attempt: attempt) { translatedParts in
+        translateParagraphParts(parts, provider: provider, at: 0, translatedParts: [], attempt: attempt) { translatedParts in
             guard let translatedParts else {
                 completion(nil)
                 return
@@ -529,6 +656,7 @@ final class TranslationService {
 
     private func translateParagraphParts(
         _ parts: [String],
+        provider: TranslationProvider,
         at index: Int,
         translatedParts: [String],
         attempt: Int,
@@ -539,14 +667,14 @@ final class TranslationService {
             return
         }
 
-        requestBatchTranslation(for: [parts[index]]) { [weak self] translated in
+        requestBatchTranslation(for: [parts[index]], provider: provider) { [weak self] translated in
             guard let self else {
                 completion(nil)
                 return
             }
 
             if let piece = translated?.first {
-                self.translateParagraphParts(parts, at: index + 1, translatedParts: translatedParts + [piece], attempt: 1, completion: completion)
+                self.translateParagraphParts(parts, provider: provider, at: index + 1, translatedParts: translatedParts + [piece], attempt: 1, completion: completion)
                 return
             }
 
@@ -558,17 +686,66 @@ final class TranslationService {
             let backoff = min(1.6, 0.35 * pow(2.0, Double(attempt - 1)))
             let jitter = Double.random(in: 0.08...0.2)
             self.workerQueue.asyncAfter(deadline: .now() + backoff + jitter) {
-                self.translateParagraphParts(parts, at: index, translatedParts: translatedParts, attempt: attempt + 1, completion: completion)
+                self.translateParagraphParts(parts, provider: provider, at: index, translatedParts: translatedParts, attempt: attempt + 1, completion: completion)
             }
         }
     }
 
-    private func requestBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+    private func requestBatchTranslation(
+        for paragraphs: [String],
+        provider: TranslationProvider,
+        completion: @escaping ([String]?) -> Void
+    ) {
         guard !paragraphs.isEmpty else {
             completion([])
             return
         }
 
+        switch provider {
+        case .webGtx:
+            requestWebGtxBatchTranslation(for: paragraphs) { [weak self] translated in
+                guard let self else {
+                    completion(translated)
+                    return
+                }
+
+                if translated != nil {
+                    completion(translated)
+                    return
+                }
+
+                if self.googleCloudApiKey() != nil {
+                    NSLog("Google Web (gtx) failed, trying Google Cloud API.")
+                    self.requestGoogleCloudBatchTranslation(for: paragraphs, completion: completion)
+                } else {
+                    self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
+                }
+            }
+        case .googleCloud:
+            requestGoogleCloudBatchTranslation(for: paragraphs) { [weak self] translated in
+                guard let self else {
+                    completion(translated)
+                    return
+                }
+
+                if translated != nil {
+                    completion(translated)
+                    return
+                }
+
+                NSLog("Google Cloud translation failed, falling back to Google Web (gtx).")
+                self.requestWebGtxBatchTranslation(for: paragraphs) { gtxTranslated in
+                    if gtxTranslated != nil {
+                        completion(gtxTranslated)
+                        return
+                    }
+                    self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
+                }
+            }
+        }
+    }
+
+    private func requestWebGtxBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
         guard var components = URLComponents(string: "https://translate.googleapis.com/translate_a/single") else {
             completion(nil)
             return
@@ -605,6 +782,130 @@ final class TranslationService {
         }.resume()
     }
 
+    private func requestGoogleMobileWebBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+        requestGoogleMobileWebBatchTranslation(paragraphs, at: 0, translated: [], completion: completion)
+    }
+
+    private func requestGoogleMobileWebBatchTranslation(
+        _ paragraphs: [String],
+        at index: Int,
+        translated: [String],
+        completion: @escaping ([String]?) -> Void
+    ) {
+        guard index < paragraphs.count else {
+            completion(translated)
+            return
+        }
+
+        requestGoogleMobileWebTranslation(for: paragraphs[index]) { [weak self] item in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            guard let item else {
+                completion(nil)
+                return
+            }
+            self.requestGoogleMobileWebBatchTranslation(paragraphs, at: index + 1, translated: translated + [item], completion: completion)
+        }
+    }
+
+    private func requestGoogleMobileWebTranslation(for text: String, completion: @escaping (String?) -> Void) {
+        guard var components = URLComponents(string: "https://translate.google.com/m") else {
+            completion(nil)
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "sl", value: "auto"),
+            URLQueryItem(name: "tl", value: "ru"),
+            URLQueryItem(name: "q", value: text)
+        ]
+        guard let url = components.url else {
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+            forHTTPHeaderField: "User-Agent"
+        )
+
+        session.dataTask(with: request) { data, response, error in
+            guard
+                error == nil,
+                let httpResponse = response as? HTTPURLResponse,
+                (200...299).contains(httpResponse.statusCode),
+                let data,
+                let html = String(data: data, encoding: .utf8)
+            else {
+                completion(nil)
+                return
+            }
+
+            guard let rawResult = Self.extractFirstRegexMatch(
+                pattern: #"<div class=\"result-container\">(.*?)</div>"#,
+                in: html
+            ) else {
+                completion(nil)
+                return
+            }
+
+            completion(Self.decodeHTML(rawResult).trimmingCharacters(in: .whitespacesAndNewlines))
+        }.resume()
+    }
+
+    private func requestGoogleCloudBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+        guard let apiKey = googleCloudApiKey(), !apiKey.isEmpty else {
+            NSLog("Google Cloud API key is missing. Set it in app menu or via GOOGLE_CLOUD_TRANSLATE_API_KEY / GOOGLE_API_KEY.")
+            completion(nil)
+            return
+        }
+
+        guard var components = URLComponents(string: "https://translation.googleapis.com/language/translate/v2") else {
+            completion(nil)
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "key", value: apiKey)
+        ]
+        guard let url = components.url else {
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 12
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: Any] = [
+            "q": paragraphs,
+            "target": "ru",
+            "format": "text"
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        session.dataTask(with: request) { data, response, error in
+            guard
+                error == nil,
+                let httpResponse = response as? HTTPURLResponse,
+                (200...299).contains(httpResponse.statusCode),
+                let data
+            else {
+                if let httpResponse = response as? HTTPURLResponse, let data, let body = String(data: data, encoding: .utf8) {
+                    NSLog("Google Cloud translation failed with status \(httpResponse.statusCode): \(body.prefix(240))")
+                } else if let error {
+                    NSLog("Google Cloud translation request error: \(error.localizedDescription)")
+                }
+                completion(nil)
+                return
+            }
+            completion(Self.parseGoogleCloudTranslatedTexts(from: data, expectedCount: paragraphs.count))
+        }.resume()
+    }
+
     private static func parseBatchTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
@@ -632,6 +933,72 @@ final class TranslationService {
         }
 
         return translations
+    }
+
+    private static func parseGoogleCloudTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
+        guard
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let dataObject = root["data"] as? [String: Any],
+            let translations = dataObject["translations"] as? [[String: Any]],
+            translations.count == expectedCount
+        else {
+            return nil
+        }
+
+        var result: [String] = []
+        result.reserveCapacity(expectedCount)
+        for item in translations {
+            guard let translated = item["translatedText"] as? String else {
+                return nil
+            }
+            result.append(decodeHTML(translated))
+        }
+        return result
+    }
+
+    private static func decodeHTML(_ text: String) -> String {
+        guard
+            let data = text.data(using: .utf8),
+            let attributed = try? NSAttributedString(
+                data: data,
+                options: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: String.Encoding.utf8.rawValue
+                ],
+                documentAttributes: nil
+            )
+        else {
+            return text
+        }
+        return attributed.string
+    }
+
+    private static func extractFirstRegexMatch(pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
+            return nil
+        }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        guard
+            let match = regex.firstMatch(in: text, options: [], range: range),
+            match.numberOfRanges >= 2
+        else {
+            return nil
+        }
+        return nsText.substring(with: match.range(at: 1))
+    }
+
+    private func googleCloudApiKey() -> String? {
+        let env = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_TRANSLATE_API_KEY"]
+            ?? ProcessInfo.processInfo.environment["GOOGLE_TRANSLATE_API_KEY"]
+            ?? ProcessInfo.processInfo.environment["GOOGLE_API_KEY"]
+        let envTrimmed = env?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !envTrimmed.isEmpty {
+            return envTrimmed
+        }
+
+        let defaultsTrimmed = settings.googleCloudApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return defaultsTrimmed.isEmpty ? nil : defaultsTrimmed
     }
 
     private func splitLongParagraph(_ text: String, maxChars: Int) -> [String] {
@@ -961,12 +1328,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = AppSettings.shared
     private let overlay = OverlayController()
     private let selection = SelectionService()
-    private let translator = TranslationService()
+    private lazy var translator = TranslationService(settings: settings)
     private let hotKey = HotKeyManager()
     private let launchAtLogin = LaunchAtLoginManager()
 
     private var statusItem: NSStatusItem?
     private var settingsWindowController: SettingsWindowController?
+    private var webGtxProviderItem: NSMenuItem?
+    private var googleCloudProviderItem: NSMenuItem?
+    private var googleCloudApiKeyMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -1017,6 +1387,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    @objc private func selectWebGtxProvider() {
+        settings.setTranslationProvider(.webGtx)
+        updateTranslationProviderMenuState()
+    }
+
+    @objc private func selectGoogleCloudProvider() {
+        settings.setTranslationProvider(.googleCloud)
+        updateTranslationProviderMenuState()
+    }
+
+    @objc private func configureGoogleCloudApiKey() {
+        let alert = NSAlert()
+        alert.messageText = "Google Cloud API key"
+        alert.informativeText = "Введите API key для официального Google Cloud Translation API. Ключ хранится в macOS Keychain. Можно оставить пустым, если используете переменную окружения."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Сохранить")
+        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: "Очистить")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        input.placeholderString = "AIza..."
+        input.stringValue = settings.googleCloudApiKey
+        alert.accessoryView = input
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            settings.setGoogleCloudApiKey(input.stringValue)
+        case .alertThirdButtonReturn:
+            settings.setGoogleCloudApiKey("")
+        default:
+            break
+        }
+
+        updateTranslationProviderMenuState()
+    }
+
+    private func updateTranslationProviderMenuState() {
+        let provider = settings.translationProvider
+        webGtxProviderItem?.state = provider == .webGtx ? .on : .off
+        googleCloudProviderItem?.state = provider == .googleCloud ? .on : .off
+        let hasApiKey = !settings.googleCloudApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        googleCloudApiKeyMenuItem?.title = hasApiKey ? "Google Cloud API key… (сохранён)" : "Google Cloud API key…"
+    }
+
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
@@ -1026,10 +1441,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(openSettings), keyEquivalent: ","))
+        let providerRootItem = NSMenuItem(title: "Способ перевода", action: nil, keyEquivalent: "")
+        let providerSubmenu = NSMenu(title: "Способ перевода")
+
+        let webItem = NSMenuItem(title: TranslationProvider.webGtx.title, action: #selector(selectWebGtxProvider), keyEquivalent: "")
+        webItem.target = self
+        providerSubmenu.addItem(webItem)
+
+        let cloudItem = NSMenuItem(title: TranslationProvider.googleCloud.title, action: #selector(selectGoogleCloudProvider), keyEquivalent: "")
+        cloudItem.target = self
+        providerSubmenu.addItem(cloudItem)
+
+        providerSubmenu.addItem(NSMenuItem.separator())
+        let apiKeyItem = NSMenuItem(title: "Google Cloud API key…", action: #selector(configureGoogleCloudApiKey), keyEquivalent: "")
+        apiKeyItem.target = self
+        providerSubmenu.addItem(apiKeyItem)
+
+        providerRootItem.submenu = providerSubmenu
+        menu.addItem(providerRootItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Выйти", action: #selector(quitApp), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
+
+        webGtxProviderItem = webItem
+        googleCloudProviderItem = cloudItem
+        googleCloudApiKeyMenuItem = apiKeyItem
+        updateTranslationProviderMenuState()
 
         statusItem = item
     }
