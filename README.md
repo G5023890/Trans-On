@@ -1,81 +1,83 @@
 # Trans-On
 
-Trans-On - macOS-приложение для быстрого получения и перевода выделенного текста.
+Trans-On is a macOS menu bar app that captures selected text and translates it to Russian.
 
-## Что делает приложение
+## What the app does
 
-- По глобальному хоткею копирует выделенный текст из активного приложения.
-- Если текст не русский, пытается перевести его на русский.
-- Показывает результат в плавающем полупрозрачном окне.
-- Закрывает окно по `Esc`.
+- Uses a global hotkey to copy selected text from the active app.
+- If the text is not already Russian, tries to translate it to Russian.
+- Shows the result in a floating semi-transparent overlay window.
+- Closes the overlay with `Esc`.
 
-## Горячая клавиша
+## Hotkey
 
-- По умолчанию: `Shift + Command + L`.
-- Комбинация настраивается в меню-баре: `⌘Я -> Настройки…`.
-- В настройках можно менять:
-  - клавишу (`A-Z`);
-  - модификаторы (`Command`, `Shift`, `Option`, `Control`);
-  - размер шрифта;
-  - автозапуск при входе в систему.
+- Default: `Shift + Command + L`.
+- Configurable in the menu bar: `⌘Я -> Настройки…`.
+- Settings allow you to change:
+  - key (`A-Z`)
+  - modifiers (`Command`, `Shift`, `Option`, `Control`)
+  - font size
+  - launch at login
 
-## Способ перевода
+## Translation providers
 
-В меню приложения доступно переключение:
+Provider switch is available in:
 
-- `⌘Я -> Способ перевода -> Google Web (gtx)` (неофициальный endpoint).
-- `⌘Я -> Способ перевода -> Google Cloud API` (официальный API).
-- `⌘Я -> Способ перевода -> Argos (offline)` (локальный перевод через установленный Argos CLI).
+- `⌘Я -> Способ перевода -> Google Web (gtx)` (unofficial endpoint)
+- `⌘Я -> Способ перевода -> Google Cloud API` (official API)
+- `⌘Я -> Способ перевода -> Argos (offline)` (local translation via installed Argos CLI)
 
-Для `Google Cloud API` нужен API key. Можно задать его так:
+### Google Cloud API key
 
-- `⌘Я -> Способ перевода -> Google Cloud API key…`
-- Ключ сохраняется в macOS Keychain.
-
-Для `Argos (offline)` добавлен пункт:
-
-- `⌘Я -> Способ перевода -> Проверить/обновить пакеты Argos…`
-- Команда обновляет индекс Argos, проверяет обновления установленных пакетов и отдельно проверяет прямой пакет `he->ru`.
-- Если `he->ru` появляется в индексе, приложение автоматически скачивает и устанавливает его, а статус сохраняется в настройках приложения.
-
-Или через переменную окружения:
+- Menu path: `⌘Я -> Способ перевода -> Google Cloud API key…`
+- Stored securely in macOS Keychain.
+- You can also use environment variables:
 
 ```bash
 export GOOGLE_CLOUD_TRANSLATE_API_KEY="YOUR_API_KEY"
-# или
+# or
 export GOOGLE_API_KEY="YOUR_API_KEY"
 ```
 
-## Запуск в режиме разработки
+### Argos package update/check
+
+- Menu path: `⌘Я -> Способ перевода -> Проверить/обновить пакеты Argos…`
+- Updates Argos package index and checks updates for installed packages.
+- Checks whether a direct `he->ru` package is available.
+- If direct `he->ru` appears in the index, the app downloads and installs it automatically.
+- The `he->ru` availability state is saved in app settings.
+
+## Run in development mode
 
 ```bash
 swift run
 ```
 
-## Сборка и установка приложения
+## Build and install
 
 ```bash
 ./scripts/build_and_install_app.sh
 ```
 
-Скрипт собирает и устанавливает `/Applications/Trans-On.app`.
+The script builds and installs `/Applications/Trans-On.app`.
 
-Особенности скрипта:
-- использует стабильный `CFBundleIdentifier` и подпись `Apple Development`, чтобы не терять доверие Accessibility после каждой пересборки;
-- автоматически ищет `AppIcon.icns` в проекте;
-- подписывает ad-hoc только если в системе нет `Apple Development` сертификата.
+Script behavior:
 
-## Права в macOS
+- Uses a stable `CFBundleIdentifier` and `Apple Development` signing identity to preserve Accessibility trust across rebuilds.
+- Auto-detects `AppIcon.icns` in the project.
+- Falls back to ad-hoc signing only when no `Apple Development` certificate is available.
 
-Для корректной работы эмуляции `Cmd+C` и чтения выделения из других программ:
+## macOS permissions
 
-- `System Settings -> Privacy & Security -> Accessibility` - добавить терминал/приложение.
-- При необходимости `Input Monitoring` - тоже добавить терминал/приложение.
+For reliable `Cmd+C` emulation and selected-text capture from other apps:
 
-Если хоткей или захват выделения не работают, сначала проверьте эти разрешения.
+- `System Settings -> Privacy & Security -> Accessibility`: add your terminal/app.
+- If needed, also add your terminal/app to `Input Monitoring`.
 
-## Ограничения
+If hotkey capture or text selection capture does not work, check these permissions first.
 
-- `Google Web (gtx)` использует неофициальный endpoint и не подходит для production.
-- `Google Cloud API` требует настроенный ключ и включённый биллинг в Google Cloud.
-- `Argos (offline)` требует установленный CLI и соответствующие языковые модели в `~/Library/Application Support/ArgosTranslate/packages`.
+## Limitations
+
+- `Google Web (gtx)` uses an unofficial endpoint and is not suitable for production.
+- `Google Cloud API` requires a valid API key and enabled billing in Google Cloud.
+- `Argos (offline)` requires installed CLI and language packages in `~/Library/Application Support/ArgosTranslate/packages`.
