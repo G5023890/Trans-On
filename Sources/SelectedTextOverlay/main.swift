@@ -40,6 +40,7 @@ struct HotKeyChoice {
 enum TranslationProvider: Int {
     case webGtx = 0
     case googleCloud = 1
+    case argos = 2
 
     var title: String {
         switch self {
@@ -47,6 +48,8 @@ enum TranslationProvider: Int {
             return "Google Web (gtx)"
         case .googleCloud:
             return "Google Cloud API"
+        case .argos:
+            return "Argos (offline)"
         }
     }
 }
@@ -129,6 +132,9 @@ final class AppSettings {
     private let translationProviderKey = "translationProvider"
     private let legacyGoogleCloudApiKeyKey = "googleCloudApiKey"
     private let googleCloudApiKeyAccount = "googleCloudApiKey"
+    private let argosDirectHeRuInstalledKey = "argosDirectHeRuInstalled"
+    private let argosLastPackageCheckAtKey = "argosLastPackageCheckAt"
+    private let argosLastPackageCheckSummaryKey = "argosLastPackageCheckSummary"
 
     private(set) var hotKeyCode: UInt32
     private(set) var hotKeyModifiers: UInt32
@@ -136,6 +142,9 @@ final class AppSettings {
     private(set) var launchAtLogin: Bool
     private(set) var translationProvider: TranslationProvider
     private(set) var googleCloudApiKey: String
+    private(set) var argosDirectHeRuInstalled: Bool
+    private(set) var argosLastPackageCheckAt: Date?
+    private(set) var argosLastPackageCheckSummary: String
 
     private init() {
         let defaultCode = UInt32(kVK_ANSI_L)
@@ -150,6 +159,13 @@ final class AppSettings {
         fontSize = CGFloat(storedFont ?? 22)
         launchAtLogin = defaults.bool(forKey: launchAtLoginKey)
         translationProvider = TranslationProvider(rawValue: defaults.integer(forKey: translationProviderKey)) ?? .webGtx
+        argosDirectHeRuInstalled = defaults.bool(forKey: argosDirectHeRuInstalledKey)
+        if let timestamp = defaults.object(forKey: argosLastPackageCheckAtKey) as? TimeInterval {
+            argosLastPackageCheckAt = Date(timeIntervalSince1970: timestamp)
+        } else {
+            argosLastPackageCheckAt = nil
+        }
+        argosLastPackageCheckSummary = defaults.string(forKey: argosLastPackageCheckSummaryKey) ?? ""
         let keychainValue = keychain.read(account: googleCloudApiKeyAccount)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !keychainValue.isEmpty {
@@ -200,6 +216,21 @@ final class AppSettings {
         if !saved {
             NSLog("Failed to save Google Cloud API key to Keychain.")
         }
+    }
+
+    func updateArgosPackageStatus(directHeRuInstalled: Bool?, summary: String) {
+        if let directHeRuInstalled {
+            argosDirectHeRuInstalled = directHeRuInstalled
+            defaults.set(directHeRuInstalled, forKey: argosDirectHeRuInstalledKey)
+        }
+
+        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        argosLastPackageCheckSummary = trimmedSummary
+        defaults.set(trimmedSummary, forKey: argosLastPackageCheckSummaryKey)
+
+        let now = Date()
+        argosLastPackageCheckAt = now
+        defaults.set(now.timeIntervalSince1970, forKey: argosLastPackageCheckAtKey)
     }
 }
 
@@ -439,9 +470,28 @@ final class TranslationService {
         case separator(String)
     }
 
+    struct ArgosPackageSyncResult {
+        let success: Bool
+        let directHeRuInstalled: Bool?
+        let summary: String
+    }
+
+    private struct ArgosPackageSyncPayload {
+        let ok: Bool
+        let directAfter: Bool
+        let directAvailableCount: Int
+        let installedNow: Bool
+        let updatedPairs: [String]
+        let warnings: [String]
+        let fatalError: String
+    }
+
     private let settings: AppSettings
     private let session: URLSession
     private let workerQueue = DispatchQueue(label: "transon.translation.worker", qos: .userInitiated)
+    private let maintenanceQueue = DispatchQueue(label: "transon.translation.maintenance", qos: .utility)
+    private let argosCliPath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate/bin/argos-translate"
+    private let argosBasePath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate"
     private let maxChunkChars = 1800
     private let maxBatchParagraphs = 6
     private let maxRetries = 3
@@ -453,6 +503,116 @@ final class TranslationService {
         config.timeoutIntervalForResource = 20
         config.waitsForConnectivity = true
         session = URLSession(configuration: config)
+    }
+
+    func checkAndUpdateArgosPackages(completion: @escaping (ArgosPackageSyncResult) -> Void) {
+        maintenanceQueue.async {
+            guard FileManager.default.isExecutableFile(atPath: self.argosCliPath) else {
+                DispatchQueue.main.async {
+                    completion(
+                        ArgosPackageSyncResult(
+                            success: false,
+                            directHeRuInstalled: nil,
+                            summary: "Argos CLI не найден или не исполняемый: \(self.argosCliPath)"
+                        )
+                    )
+                }
+                return
+            }
+
+            let pythonPath = "/usr/bin/python3"
+            guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+                DispatchQueue.main.async {
+                    completion(
+                        ArgosPackageSyncResult(
+                            success: false,
+                            directHeRuInstalled: nil,
+                            summary: "Не найден интерпретатор Python: \(pythonPath)"
+                        )
+                    )
+                }
+                return
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: pythonPath)
+            process.arguments = ["-c", Self.argosPackageSyncPythonScript]
+
+            var env = ProcessInfo.processInfo.environment
+            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
+            let pythonLibPath = "\(self.argosBasePath)/python_lib"
+            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
+                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
+            } else {
+                env["PYTHONPATH"] = pythonLibPath
+            }
+            process.environment = env
+
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                DispatchQueue.main.async {
+                    completion(
+                        ArgosPackageSyncResult(
+                            success: false,
+                            directHeRuInstalled: nil,
+                            summary: "Не удалось запустить проверку Argos: \(error.localizedDescription)"
+                        )
+                    )
+                }
+                return
+            }
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputText = String(data: outputData, encoding: .utf8) ?? ""
+            let errorText = String(data: errorData, encoding: .utf8) ?? ""
+
+            guard process.terminationStatus == 0 else {
+                let trimmedError = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    completion(
+                        ArgosPackageSyncResult(
+                            success: false,
+                            directHeRuInstalled: nil,
+                            summary: "Проверка Argos завершилась с кодом \(process.terminationStatus).\n\(trimmedError.prefix(300))"
+                        )
+                    )
+                }
+                return
+            }
+
+            guard let payload = Self.parseArgosPackageSyncPayload(from: outputText) else {
+                let trimmedOutput = outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    completion(
+                        ArgosPackageSyncResult(
+                            success: false,
+                            directHeRuInstalled: nil,
+                            summary: "Не удалось разобрать ответ Argos.\n\(trimmedOutput.prefix(300))"
+                        )
+                    )
+                }
+                return
+            }
+
+            let summary = Self.makeArgosPackageSyncSummary(from: payload, stderr: errorText)
+            let result = ArgosPackageSyncResult(
+                success: payload.ok,
+                directHeRuInstalled: payload.ok ? payload.directAfter : nil,
+                summary: summary
+            )
+
+            DispatchQueue.main.async {
+                completion(result)
+            }
+        }
     }
 
     func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
@@ -742,6 +902,21 @@ final class TranslationService {
                     self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
                 }
             }
+        case .argos:
+            requestArgosBatchTranslation(for: paragraphs) { [weak self] translated in
+                guard let self else {
+                    completion(translated)
+                    return
+                }
+
+                if translated != nil {
+                    completion(translated)
+                    return
+                }
+
+                NSLog("Argos translation failed, falling back to Google Web (gtx) chain.")
+                self.requestBatchTranslation(for: paragraphs, provider: .webGtx, completion: completion)
+            }
         }
     }
 
@@ -856,6 +1031,92 @@ final class TranslationService {
         }.resume()
     }
 
+    private func requestArgosBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+        requestArgosBatchTranslation(paragraphs, at: 0, translated: [], completion: completion)
+    }
+
+    private func requestArgosBatchTranslation(
+        _ paragraphs: [String],
+        at index: Int,
+        translated: [String],
+        completion: @escaping ([String]?) -> Void
+    ) {
+        guard index < paragraphs.count else {
+            completion(translated)
+            return
+        }
+
+        requestArgosTranslation(for: paragraphs[index]) { [weak self] item in
+            guard let self else {
+                completion(nil)
+                return
+            }
+
+            guard let item else {
+                completion(nil)
+                return
+            }
+
+            self.requestArgosBatchTranslation(paragraphs, at: index + 1, translated: translated + [item], completion: completion)
+        }
+    }
+
+    private func requestArgosTranslation(for text: String, completion: @escaping (String?) -> Void) {
+        guard FileManager.default.isExecutableFile(atPath: argosCliPath) else {
+            NSLog("Argos CLI not found or not executable at \(argosCliPath)")
+            completion(nil)
+            return
+        }
+
+        workerQueue.async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: self.argosCliPath)
+            process.arguments = ["--text", text, "--to", "ru"]
+
+            var env = ProcessInfo.processInfo.environment
+            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
+            let pythonLibPath = "\(self.argosBasePath)/python_lib"
+            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
+                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
+            } else {
+                env["PYTHONPATH"] = pythonLibPath
+            }
+            process.environment = env
+
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                NSLog("Argos process failed to start: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+
+            guard process.terminationStatus == 0 else {
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorText = String(data: errorData, encoding: .utf8) ?? ""
+                NSLog("Argos process failed with status \(process.terminationStatus): \(errorText.prefix(240))")
+                completion(nil)
+                return
+            }
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: outputData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty
+            else {
+                completion(nil)
+                return
+            }
+
+            completion(output)
+        }
+    }
+
     private func requestGoogleCloudBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
         guard let apiKey = googleCloudApiKey(), !apiKey.isEmpty else {
             NSLog("Google Cloud API key is missing. Set it in app menu or via GOOGLE_CLOUD_TRANSLATE_API_KEY / GOOGLE_API_KEY.")
@@ -905,6 +1166,178 @@ final class TranslationService {
             completion(Self.parseGoogleCloudTranslatedTexts(from: data, expectedCount: paragraphs.count))
         }.resume()
     }
+
+    private static func parseArgosPackageSyncPayload(from output: String) -> ArgosPackageSyncPayload? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let candidates = [trimmed] + trimmed.split(whereSeparator: \.isNewline).map(String.init).reversed()
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8) else {
+                continue
+            }
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            let ok = root["ok"] as? Bool ?? false
+            let directAfter = root["direct_after"] as? Bool ?? false
+            let directAvailableCount = root["direct_available_count"] as? Int ?? 0
+            let installedNow = root["installed_now"] as? Bool ?? false
+            let updatedPairs = root["updated_pairs"] as? [String] ?? []
+            let warnings = root["warnings"] as? [String] ?? []
+            let fatalError = root["fatal_error"] as? String ?? ""
+            return ArgosPackageSyncPayload(
+                ok: ok,
+                directAfter: directAfter,
+                directAvailableCount: directAvailableCount,
+                installedNow: installedNow,
+                updatedPairs: updatedPairs,
+                warnings: warnings,
+                fatalError: fatalError
+            )
+        }
+
+        return nil
+    }
+
+    private static func makeArgosPackageSyncSummary(from payload: ArgosPackageSyncPayload, stderr: String) -> String {
+        var lines: [String] = []
+
+        if !payload.ok {
+            lines.append("Не удалось обновить пакеты Argos.")
+            if !payload.fatalError.isEmpty {
+                lines.append(payload.fatalError)
+            }
+            let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedStderr.isEmpty {
+                lines.append("Лог: \(trimmedStderr.prefix(300))")
+            }
+            return lines.joined(separator: "\n")
+        }
+
+        if payload.updatedPairs.isEmpty {
+            lines.append("Обновлений для установленных пакетов не найдено.")
+        } else {
+            lines.append("Обновлены пакеты: \(payload.updatedPairs.joined(separator: ", ")).")
+        }
+
+        if payload.directAfter {
+            lines.append(payload.installedNow ? "Пакет he->ru найден и установлен." : "Пакет he->ru уже установлен.")
+        } else if payload.directAvailableCount > 0 {
+            lines.append("Пакет he->ru есть в индексе, но установить его не удалось.")
+        } else {
+            lines.append("Пакет he->ru пока отсутствует в индексе Argos.")
+        }
+
+        if !payload.warnings.isEmpty {
+            lines.append("Предупреждения: \(payload.warnings.joined(separator: " | "))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private static let argosPackageSyncPythonScript = #"""
+import json
+import os
+import re
+
+result = {
+    "ok": False,
+    "direct_before": False,
+    "direct_after": False,
+    "direct_available_count": 0,
+    "installed_now": False,
+    "updated_pairs": [],
+    "warnings": [],
+    "fatal_error": "",
+}
+
+def version_tuple(value):
+    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))]
+    return tuple(parts) if parts else (0,)
+
+def best_package(packages):
+    return sorted(packages, key=lambda p: version_tuple(getattr(p, "version", "0")), reverse=True)[0]
+
+def has_direct(packages):
+    for pkg in packages:
+        if getattr(pkg, "from_code", "") == "he" and getattr(pkg, "to_code", "") == "ru":
+            return True
+    return False
+
+try:
+    import argostranslate.package as package
+except Exception as exc:
+    result["fatal_error"] = f"Import error: {exc}"
+    print(json.dumps(result, ensure_ascii=False))
+    raise SystemExit(0)
+
+packages_dir = os.environ.get("ARGOS_PACKAGES_DIR", "")
+if packages_dir:
+    os.makedirs(packages_dir, exist_ok=True)
+
+try:
+    package.update_package_index()
+    available = package.get_available_packages()
+    installed = package.get_installed_packages()
+except Exception as exc:
+    result["fatal_error"] = f"Package index error: {exc}"
+    print(json.dumps(result, ensure_ascii=False))
+    raise SystemExit(0)
+
+result["direct_before"] = has_direct(installed)
+
+installed_by_pair = {}
+for pkg in installed:
+    pair = f"{getattr(pkg, 'from_code', '')}->{getattr(pkg, 'to_code', '')}"
+    current = installed_by_pair.get(pair)
+    if current is None or version_tuple(getattr(pkg, "version", "0")) > version_tuple(getattr(current, "version", "0")):
+        installed_by_pair[pair] = pkg
+
+for pair, current_pkg in installed_by_pair.items():
+    candidates = [
+        pkg for pkg in available
+        if getattr(pkg, "from_code", "") == getattr(current_pkg, "from_code", "")
+        and getattr(pkg, "to_code", "") == getattr(current_pkg, "to_code", "")
+    ]
+    if not candidates:
+        continue
+    latest = best_package(candidates)
+    current_version = str(getattr(current_pkg, "version", "0"))
+    latest_version = str(getattr(latest, "version", "0"))
+    if version_tuple(latest_version) > version_tuple(current_version):
+        try:
+            path = latest.download()
+            package.install_from_path(path)
+            result["updated_pairs"].append(f"{pair} {current_version}->{latest_version}")
+        except Exception as exc:
+            result["warnings"].append(f"Failed to update {pair}: {exc}")
+
+direct_candidates = [pkg for pkg in available if getattr(pkg, "from_code", "") == "he" and getattr(pkg, "to_code", "") == "ru"]
+result["direct_available_count"] = len(direct_candidates)
+
+if direct_candidates and not result["direct_before"]:
+    try:
+        latest_direct = best_package(direct_candidates)
+        path = latest_direct.download()
+        package.install_from_path(path)
+        result["installed_now"] = True
+    except Exception as exc:
+        result["warnings"].append(f"Failed to install he->ru: {exc}")
+
+try:
+    installed_after = package.get_installed_packages()
+    result["direct_after"] = has_direct(installed_after)
+except Exception as exc:
+    result["warnings"].append(f"Failed to verify installed packages: {exc}")
+    result["direct_after"] = result["direct_before"]
+
+result["ok"] = True
+print(json.dumps(result, ensure_ascii=False))
+"""#
 
     private static func parseBatchTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
         guard
@@ -1336,7 +1769,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private var webGtxProviderItem: NSMenuItem?
     private var googleCloudProviderItem: NSMenuItem?
+    private var argosProviderItem: NSMenuItem?
     private var googleCloudApiKeyMenuItem: NSMenuItem?
+    private var argosPackageUpdateMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -1397,6 +1832,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTranslationProviderMenuState()
     }
 
+    @objc private func selectArgosProvider() {
+        settings.setTranslationProvider(.argos)
+        updateTranslationProviderMenuState()
+    }
+
     @objc private func configureGoogleCloudApiKey() {
         let alert = NSAlert()
         alert.messageText = "Google Cloud API key"
@@ -1424,12 +1864,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTranslationProviderMenuState()
     }
 
+    @objc private func checkAndUpdateArgosPackages() {
+        argosPackageUpdateMenuItem?.isEnabled = false
+        argosPackageUpdateMenuItem?.title = "Проверка пакетов Argos…"
+
+        translator.checkAndUpdateArgosPackages { [weak self] result in
+            guard let self else { return }
+
+            if result.success {
+                self.settings.updateArgosPackageStatus(
+                    directHeRuInstalled: result.directHeRuInstalled,
+                    summary: result.summary
+                )
+            }
+
+            self.argosPackageUpdateMenuItem?.isEnabled = true
+            self.updateTranslationProviderMenuState()
+
+            let alert = NSAlert()
+            alert.alertStyle = result.success ? .informational : .warning
+            alert.messageText = result.success ? "Пакеты Argos проверены" : "Ошибка проверки Argos"
+            alert.informativeText = result.summary
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
+
     private func updateTranslationProviderMenuState() {
         let provider = settings.translationProvider
         webGtxProviderItem?.state = provider == .webGtx ? .on : .off
         googleCloudProviderItem?.state = provider == .googleCloud ? .on : .off
+        argosProviderItem?.state = provider == .argos ? .on : .off
         let hasApiKey = !settings.googleCloudApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         googleCloudApiKeyMenuItem?.title = hasApiKey ? "Google Cloud API key… (сохранён)" : "Google Cloud API key…"
+        let heRuState = settings.argosDirectHeRuInstalled ? "установлен" : "не установлен"
+        argosPackageUpdateMenuItem?.title = "Проверить/обновить пакеты Argos… (he->ru: \(heRuState))"
     }
 
     private func setupStatusItem() {
@@ -1452,10 +1921,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudItem.target = self
         providerSubmenu.addItem(cloudItem)
 
+        let argosItem = NSMenuItem(title: TranslationProvider.argos.title, action: #selector(selectArgosProvider), keyEquivalent: "")
+        argosItem.target = self
+        providerSubmenu.addItem(argosItem)
+
         providerSubmenu.addItem(NSMenuItem.separator())
         let apiKeyItem = NSMenuItem(title: "Google Cloud API key…", action: #selector(configureGoogleCloudApiKey), keyEquivalent: "")
         apiKeyItem.target = self
         providerSubmenu.addItem(apiKeyItem)
+
+        let argosPackagesItem = NSMenuItem(title: "Проверить/обновить пакеты Argos…", action: #selector(checkAndUpdateArgosPackages), keyEquivalent: "")
+        argosPackagesItem.target = self
+        providerSubmenu.addItem(argosPackagesItem)
 
         providerRootItem.submenu = providerSubmenu
         menu.addItem(providerRootItem)
@@ -1466,7 +1943,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         webGtxProviderItem = webItem
         googleCloudProviderItem = cloudItem
+        argosProviderItem = argosItem
         googleCloudApiKeyMenuItem = apiKeyItem
+        argosPackageUpdateMenuItem = argosPackagesItem
         updateTranslationProviderMenuState()
 
         statusItem = item
