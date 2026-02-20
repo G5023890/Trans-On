@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Security
 import ServiceManagement
+import SwiftUI
 
 struct HotKeyChoice {
     let title: String
@@ -122,13 +123,17 @@ final class KeychainStore {
 
 final class AppSettings {
     static let shared = AppSettings()
+    static let hotKeyCodeDefaultsKey = "hotKeyCode"
+    static let hotKeyModifiersDefaultsKey = "hotKeyModifiers"
+    static let fontSizeDefaultsKey = "fontSize"
+    static let launchAtLoginDefaultsKey = "launchAtLogin"
 
     private let defaults = UserDefaults.standard
     private let keychain = KeychainStore(service: "com.grigorym.SelectedTextOverlay")
-    private let hotKeyCodeKey = "hotKeyCode"
-    private let hotKeyModifiersKey = "hotKeyModifiers"
-    private let fontSizeKey = "fontSize"
-    private let launchAtLoginKey = "launchAtLogin"
+    private let hotKeyCodeKey = AppSettings.hotKeyCodeDefaultsKey
+    private let hotKeyModifiersKey = AppSettings.hotKeyModifiersDefaultsKey
+    private let fontSizeKey = AppSettings.fontSizeDefaultsKey
+    private let launchAtLoginKey = AppSettings.launchAtLoginDefaultsKey
     private let translationProviderKey = "translationProvider"
     private let legacyGoogleCloudApiKeyKey = "googleCloudApiKey"
     private let googleCloudApiKeyAccount = "googleCloudApiKey"
@@ -264,6 +269,8 @@ final class OverlayView: NSView {
     private var loadingTimer: Timer?
     private var loadingBaseMessage = "Идет перевод"
     private var loadingDotFrame = 0
+    private var textFontSize: CGFloat = 22
+    private let textLineHeightMultiple: CGFloat = 1.2
     var onEscape: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -277,9 +284,10 @@ final class OverlayView: NSView {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.textColor = .white
-        textView.font = NSFont.systemFont(ofSize: 22, weight: .medium)
+        textView.font = NSFont.systemFont(ofSize: textFontSize, weight: .medium)
         textView.alignment = .left
         textView.textContainerInset = NSSize(width: 24, height: 24)
+        textView.typingAttributes = makeTextAttributes()
         textView.onEscape = { [weak self] in
             self?.onEscape?()
         }
@@ -338,7 +346,9 @@ final class OverlayView: NSView {
         loadingIndicator.stopAnimation(nil)
         loadingContainer.isHidden = true
         scrollView.isHidden = false
-        textView.string = text
+        textView.textStorage?.setAttributedString(
+            NSAttributedString(string: text, attributes: makeTextAttributes())
+        )
         textView.scrollToBeginningOfDocument(nil)
         window?.makeFirstResponder(textView)
     }
@@ -373,11 +383,28 @@ final class OverlayView: NSView {
     }
 
     func setFontSize(_ size: CGFloat) {
+        textFontSize = size
         textView.font = NSFont.systemFont(ofSize: size, weight: .medium)
+        textView.typingAttributes = makeTextAttributes()
+        guard let storage = textView.textStorage else { return }
+        let currentText = storage.string
+        guard !currentText.isEmpty else { return }
+        storage.setAttributedString(NSAttributedString(string: currentText, attributes: makeTextAttributes()))
     }
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?()
+    }
+
+    private func makeTextAttributes() -> [NSAttributedString.Key: Any] {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        paragraphStyle.lineHeightMultiple = textLineHeightMultiple
+        return [
+            .font: NSFont.systemFont(ofSize: textFontSize, weight: .medium),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraphStyle
+        ]
     }
 }
 
@@ -1697,142 +1724,6 @@ final class LaunchAtLoginManager {
     }
 }
 
-final class SettingsWindowController: NSWindowController {
-    var onHotKeyChanged: ((UInt32, UInt32) -> Void)?
-    var onFontSizeChanged: ((CGFloat) -> Void)?
-    var onLaunchAtLoginChanged: ((Bool) -> Bool)?
-
-    private let settings: AppSettings
-    private let keyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let commandCheck = NSButton(checkboxWithTitle: "Command", target: nil, action: nil)
-    private let shiftCheck = NSButton(checkboxWithTitle: "Shift", target: nil, action: nil)
-    private let optionCheck = NSButton(checkboxWithTitle: "Option", target: nil, action: nil)
-    private let controlCheck = NSButton(checkboxWithTitle: "Control", target: nil, action: nil)
-    private let fontSlider = NSSlider(value: 22, minValue: 12, maxValue: 56, target: nil, action: nil)
-    private let fontValueLabel = NSTextField(labelWithString: "22")
-    private let launchCheck = NSButton(checkboxWithTitle: "Автозапуск при входе в систему", target: nil, action: nil)
-
-    init(settings: AppSettings) {
-        self.settings = settings
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Настройки"
-        window.center()
-        super.init(window: window)
-        setupUI()
-        loadFromSettings()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    private func setupUI() {
-        guard let contentView = window?.contentView else { return }
-
-        keyPopup.addItems(withTitles: HotKeyChoice.all.map { $0.title })
-        keyPopup.target = self
-        keyPopup.action = #selector(hotKeyChanged)
-
-        [commandCheck, shiftCheck, optionCheck, controlCheck].forEach {
-            $0.target = self
-            $0.action = #selector(hotKeyChanged)
-        }
-
-        fontSlider.target = self
-        fontSlider.action = #selector(fontSizeChanged)
-        fontSlider.numberOfTickMarks = 0
-
-        launchCheck.target = self
-        launchCheck.action = #selector(launchAtLoginChanged)
-
-        let hotKeyLabel = NSTextField(labelWithString: "Горячая клавиша")
-        let fontLabel = NSTextField(labelWithString: "Размер шрифта")
-
-        let modifiersStack = NSStackView(views: [commandCheck, shiftCheck, optionCheck, controlCheck])
-        modifiersStack.orientation = .horizontal
-        modifiersStack.spacing = 12
-
-        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Клавиша:"), keyPopup])
-        keyRow.orientation = .horizontal
-        keyRow.spacing = 8
-        keyRow.alignment = .centerY
-
-        let fontRow = NSStackView(views: [fontSlider, fontValueLabel])
-        fontRow.orientation = .horizontal
-        fontRow.spacing = 10
-        fontRow.alignment = .centerY
-
-        let root = NSStackView(views: [hotKeyLabel, keyRow, modifiersStack, fontLabel, fontRow, launchCheck])
-        root.orientation = .vertical
-        root.spacing = 14
-        root.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 20, right: 20)
-        root.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(root)
-        NSLayoutConstraint.activate([
-            root.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            root.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            root.topAnchor.constraint(equalTo: contentView.topAnchor),
-            root.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-        ])
-    }
-
-    private func loadFromSettings() {
-        if let index = HotKeyChoice.all.firstIndex(where: { $0.keyCode == settings.hotKeyCode }) {
-            keyPopup.selectItem(at: index)
-        }
-
-        commandCheck.state = (settings.hotKeyModifiers & UInt32(cmdKey)) != 0 ? .on : .off
-        shiftCheck.state = (settings.hotKeyModifiers & UInt32(shiftKey)) != 0 ? .on : .off
-        optionCheck.state = (settings.hotKeyModifiers & UInt32(optionKey)) != 0 ? .on : .off
-        controlCheck.state = (settings.hotKeyModifiers & UInt32(controlKey)) != 0 ? .on : .off
-
-        fontSlider.doubleValue = settings.fontSize
-        fontValueLabel.stringValue = String(Int(settings.fontSize))
-        launchCheck.state = settings.launchAtLogin ? .on : .off
-    }
-
-    @objc private func hotKeyChanged() {
-        let selectedIndex = max(0, keyPopup.indexOfSelectedItem)
-        let selectedKeyCode = HotKeyChoice.all[selectedIndex].keyCode
-
-        var modifiers: UInt32 = 0
-        if commandCheck.state == .on { modifiers |= UInt32(cmdKey) }
-        if shiftCheck.state == .on { modifiers |= UInt32(shiftKey) }
-        if optionCheck.state == .on { modifiers |= UInt32(optionKey) }
-        if controlCheck.state == .on { modifiers |= UInt32(controlKey) }
-
-        if modifiers == 0 {
-            modifiers = UInt32(cmdKey)
-            commandCheck.state = .on
-        }
-
-        settings.setHotKey(code: selectedKeyCode, modifiers: modifiers)
-        onHotKeyChanged?(selectedKeyCode, modifiers)
-    }
-
-    @objc private func fontSizeChanged() {
-        let newSize = CGFloat(fontSlider.doubleValue)
-        settings.setFontSize(newSize)
-        fontValueLabel.stringValue = String(Int(newSize.rounded()))
-        onFontSizeChanged?(newSize)
-    }
-
-    @objc private func launchAtLoginChanged() {
-        let desired = launchCheck.state == .on
-        let success = onLaunchAtLoginChanged?(desired) ?? false
-        if success {
-            settings.setLaunchAtLogin(desired)
-        } else {
-            launchCheck.state = desired ? .off : .on
-            NSSound.beep()
-        }
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = AppSettings.shared
     private let overlay = OverlayController()
@@ -1842,16 +1733,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchAtLogin = LaunchAtLoginManager()
 
     private var statusItem: NSStatusItem?
-    private var settingsWindowController: SettingsWindowController?
     private var webGtxProviderItem: NSMenuItem?
     private var googleCloudProviderItem: NSMenuItem?
     private var argosProviderItem: NSMenuItem?
     private var googleCloudApiKeyMenuItem: NSMenuItem?
     private var argosPackageUpdateMenuItem: NSMenuItem?
+    private weak var settingsViewModel: SettingsViewModel?
+    private var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         overlay.setFontSize(settings.fontSize)
+        NSApp.setActivationPolicy(.accessory)
+        Task { @MainActor in
+            self.bindSettingsViewModel(SettingsShared.viewModel)
+        }
 
         hotKey.onTrigger = { [weak self] in
             guard let self else { return }
@@ -1883,23 +1779,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @MainActor
+    func bindSettingsViewModel(_ viewModel: SettingsViewModel) {
+        settingsViewModel = viewModel
+        viewModel.onHotKeyChanged = { [weak self] keyCode, modifiers in
+            self?.hotKey.register(keyCode: keyCode, modifiers: modifiers)
+        }
+        viewModel.onFontSizeChanged = { [weak self] size in
+            self?.overlay.setFontSize(size)
+        }
+    }
+
+    @MainActor
     @objc private func openSettings() {
-        if settingsWindowController == nil {
-            let controller = SettingsWindowController(settings: settings)
-            controller.onHotKeyChanged = { [weak self] keyCode, modifiers in
-                self?.hotKey.register(keyCode: keyCode, modifiers: modifiers)
-            }
-            controller.onFontSizeChanged = { [weak self] size in
-                self?.overlay.setFontSize(size)
-            }
-            controller.onLaunchAtLoginChanged = { [weak self] enabled in
-                self?.launchAtLogin.setEnabled(enabled) ?? false
-            }
-            settingsWindowController = controller
+        NSApp.activate(ignoringOtherApps: true)
+        showFallbackSettingsWindow()
+    }
+
+    @MainActor
+    private func showFallbackSettingsWindow() {
+        let viewModel = settingsViewModel ?? SettingsShared.viewModel
+
+        if fallbackSettingsWindowController == nil {
+            let host = NSHostingController(rootView: SettingsView(viewModel: viewModel))
+            let window = NSWindow(contentViewController: host)
+            window.title = "Настройки"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 560, height: 480))
+            window.center()
+            window.tabbingMode = .disallowed
+            window.toolbarStyle = .preference
+            let toolbar = NSToolbar(identifier: "TransOnSettingsToolbar")
+            toolbar.showsBaselineSeparator = false
+            window.toolbar = toolbar
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            window.isReleasedWhenClosed = false
+            fallbackSettingsWindowController = NSWindowController(window: window)
         }
 
-        settingsWindowController?.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        fallbackSettingsWindowController?.showWindow(nil)
+        fallbackSettingsWindowController?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quitApp() {
@@ -2085,9 +2005,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 }
-
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.setActivationPolicy(.accessory)
-app.delegate = delegate
-app.run()

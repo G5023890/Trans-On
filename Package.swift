@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "SelectedTextOverlay",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     targets: [
         .executableTarget(
@@ -12,7 +12,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("Security")
+                .linkedFramework("Security"),
+                .linkedFramework("SwiftUI")
             ]
         )
     ]
