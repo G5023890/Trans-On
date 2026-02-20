@@ -1901,11 +1901,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         argosPackageUpdateMenuItem?.title = "Проверить/обновить пакеты Argos… (he->ru: \(heRuState))"
     }
 
+    private func makeMenuBarBadgeImage() -> NSImage? {
+        let imageSize = NSSize(width: 18, height: 18)
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+        NSGraphicsContext.current?.imageInterpolation = .high
+
+        NSColor.black.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: imageSize)).fill()
+
+        let yaSize: CGFloat = 17
+        let text = "Я" as NSString
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: yaSize, weight: .black)
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: (imageSize.width - textSize.width) / 2,
+            y: (imageSize.height - textSize.height) / 2 - 0.2,
+            width: textSize.width,
+            height: textSize.height
+        )
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.compositingOperation = .clear
+        text.draw(in: textRect, withAttributes: attrs)
+        NSGraphicsContext.restoreGraphicsState()
+
+        image.isTemplate = false
+        return image
+    }
+
+    private func loadMenuBarIconFromBundle() -> NSImage? {
+        guard
+            let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png"),
+            let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+
+        let targetHeight: CGFloat = 18
+        let originalHeight = max(image.size.height, 1)
+        let scale = targetHeight / originalHeight
+        image.size = NSSize(width: image.size.width * scale, height: targetHeight)
+        image.isTemplate = false
+        return image
+    }
+
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.title = "⌘Я"
-            button.image = nil
+            button.image = loadMenuBarIconFromBundle() ?? makeMenuBarBadgeImage()
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+            button.title = ""
         }
 
         let menu = NSMenu()

@@ -1,27 +1,27 @@
 # Questions & Answers
 
-## Q: API Google Translate бесплатное или платное?
-A: Официальный Google Cloud Translation API — платный сервис (для новых аккаунтов может быть trial/кредиты). Неофициальный endpoint `translate.googleapis.com/translate_a/single` не предназначен для production.
+## Q: Is Google Translate API free or paid?
+A: The official Google Cloud Translation API is a paid service (new accounts may have trial credits). The unofficial endpoint `translate.googleapis.com/translate_a/single` is not intended for production use.
 
-## Q: Какая стоимость официального API?
+## Q: What is the cost of the official API?
 A:
 - NMT (Basic v2 / Advanced v3):
-  - первые 500,000 символов в месяц — бесплатно
-  - далее $20 за 1,000,000 символов
-- Translation LLM: $10 за 1,000,000 входных и $10 за 1,000,000 выходных символов
-- Adaptive Translation: $25 за 1,000,000 входных и $25 за 1,000,000 выходных символов
-- Документы (NMT): $0.08 за страницу
+  - first 500,000 characters per month are free
+  - then $20 per 1,000,000 characters
+- Translation LLM: $10 per 1,000,000 input and $10 per 1,000,000 output characters
+- Adaptive Translation: $25 per 1,000,000 input and $25 per 1,000,000 output characters
+- Documents (NMT): $0.08 per page
 
-## Q: Как подключиться к Google Cloud Translation API?
+## Q: How do I connect to Google Cloud Translation API?
 A:
-1. Создать проект в Google Cloud и включить Billing.
-2. Включить `Cloud Translation API`.
-3. Создать доступ:
-   - для быстрого теста: API key (v2),
-   - для production: Service Account + backend proxy.
-4. Отправлять запросы к официальному endpoint Cloud Translation.
+1. Create a Google Cloud project and enable Billing.
+2. Enable `Cloud Translation API`.
+3. Create access credentials:
+   - for quick testing: API key (v2),
+   - for production: Service Account + backend proxy.
+4. Send requests to the official Cloud Translation endpoint.
 
-Пример (v2):
+Example (v2):
 ```bash
 curl -s -X POST "https://translation.googleapis.com/language/translate/v2?key=YOUR_API_KEY" \
   -H "Content-Type: application/json" \

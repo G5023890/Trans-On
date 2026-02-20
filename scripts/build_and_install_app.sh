@@ -11,6 +11,7 @@ APP_DIR="${APP_DIR:-dist/${APP_DISPLAY_NAME}.app}"
 INSTALL_DIR="${INSTALL_DIR:-/Applications/${APP_DISPLAY_NAME}.app}"
 LEGACY_INSTALL_DIR="${LEGACY_INSTALL_DIR:-/Applications/SelectedTextOverlay.app}"
 ICON_SOURCE="${ICON_SOURCE:-}"
+MENUBAR_ICON_SOURCE="${MENUBAR_ICON_SOURCE:-}"
 SKIP_SIGN="${SKIP_SIGN:-0}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 RESOLVED_SIGN_IDENTITY=""
@@ -35,6 +36,33 @@ pick_icon_source() {
     "$PROJECT_DIR/dist/AppIcon.icns"
     "/Applications/${APP_DISPLAY_NAME}.app/Contents/Resources/AppIcon.icns"
     "$LEGACY_INSTALL_DIR/Contents/Resources/AppIcon.icns"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+pick_menubar_icon_source() {
+  if [[ -n "$MENUBAR_ICON_SOURCE" && -f "$MENUBAR_ICON_SOURCE" ]]; then
+    echo "$MENUBAR_ICON_SOURCE"
+    return 0
+  fi
+
+  local candidates=(
+    "$PROJECT_DIR/MenuBarIcon.png"
+    "$PROJECT_DIR/assets/MenuBarIcon.png"
+    "$PROJECT_DIR/Assets/MenuBarIcon.png"
+    "$PROJECT_DIR/Resources/MenuBarIcon.png"
+    "$PROJECT_DIR/dist/MenuBarIcon.png"
+    "/Applications/${APP_DISPLAY_NAME}.app/Contents/Resources/MenuBarIcon.png"
+    "$LEGACY_INSTALL_DIR/Contents/Resources/MenuBarIcon.png"
   )
 
   local candidate
@@ -124,6 +152,13 @@ else
   log "Icon not found; app will be built without custom icon"
 fi
 
+MENUBAR_ICON_PATH=""
+if MENUBAR_ICON_PATH="$(pick_menubar_icon_source)"; then
+  log "Using menu bar icon: $MENUBAR_ICON_PATH"
+else
+  log "Menu bar icon not found; app will use built-in fallback rendering"
+fi
+
 rm -rf "$APP_STAGE"
 mkdir -p "$APP_STAGE/Contents/MacOS" "$APP_STAGE/Contents/Resources"
 cp "$BIN_PATH" "$APP_STAGE/Contents/MacOS/${EXECUTABLE_NAME}"
@@ -135,6 +170,11 @@ if [[ -n "$ICON_PATH" ]]; then
   ICON_PLIST_BLOCK=$'  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>'
 else
   ICON_PLIST_BLOCK=""
+fi
+
+if [[ -n "$MENUBAR_ICON_PATH" ]]; then
+  /usr/bin/ditto --norsrc "$MENUBAR_ICON_PATH" "$APP_STAGE/Contents/Resources/MenuBarIcon.png"
+  xattr -c "$APP_STAGE/Contents/Resources/MenuBarIcon.png" 2>/dev/null || true
 fi
 
 cat > "$APP_STAGE/Contents/Info.plist" <<PLIST

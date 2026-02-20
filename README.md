@@ -12,7 +12,7 @@ Trans-On is a macOS menu bar app that captures selected text and translates it t
 ## Hotkey
 
 - Default: `Shift + Command + L`.
-- Configurable in the menu bar: `⌘Я -> Настройки…`.
+- Configurable in the menu bar: `Menu bar icon -> Settings…`.
 - Settings allow you to change:
   - key (`A-Z`)
   - modifiers (`Command`, `Shift`, `Option`, `Control`)
@@ -23,13 +23,13 @@ Trans-On is a macOS menu bar app that captures selected text and translates it t
 
 Provider switch is available in:
 
-- `⌘Я -> Способ перевода -> Google Web (gtx)` (unofficial endpoint)
-- `⌘Я -> Способ перевода -> Google Cloud API` (official API)
-- `⌘Я -> Способ перевода -> Argos (offline)` (local translation via installed Argos CLI)
+- `Menu bar icon -> Translation Method -> Google Web (gtx)` (unofficial endpoint)
+- `Menu bar icon -> Translation Method -> Google Cloud API` (official API)
+- `Menu bar icon -> Translation Method -> Argos (offline)` (local translation via installed Argos CLI)
 
 ### Google Cloud API key
 
-- Menu path: `⌘Я -> Способ перевода -> Google Cloud API key…`
+- Menu path: `Menu bar icon -> Translation Method -> Google Cloud API key…`
 - Stored securely in macOS Keychain.
 - You can also use environment variables:
 
@@ -41,7 +41,7 @@ export GOOGLE_API_KEY="YOUR_API_KEY"
 
 ### Argos package update/check
 
-- Menu path: `⌘Я -> Способ перевода -> Проверить/обновить пакеты Argos…`
+- Menu path: `Menu bar icon -> Translation Method -> Check/Update Argos packages…`
 - Updates Argos package index and checks updates for installed packages.
 - Checks whether a direct `he->ru` package is available.
 - If direct `he->ru` appears in the index, the app downloads and installs it automatically.
