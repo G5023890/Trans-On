@@ -81,3 +81,8 @@ If hotkey capture or text selection capture does not work, check these permissio
 - `Google Web (gtx)` uses an unofficial endpoint and is not suitable for production.
 - `Google Cloud API` requires a valid API key and enabled billing in Google Cloud.
 - `Argos (offline)` requires installed CLI and language packages in `~/Library/Application Support/ArgosTranslate/packages`.
+
+## License
+
+This project is licensed under the Apache License 2.0 (`Apache-2.0`).
+See `/Users/grigorymordokhovich/Documents/Develop/Selected text/LICENSE`.
