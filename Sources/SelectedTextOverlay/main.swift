@@ -257,6 +257,13 @@ final class EscapeTextView: NSTextView {
 
 final class OverlayView: NSView {
     private let textView = EscapeTextView()
+    private let scrollView = NSScrollView()
+    private let loadingContainer = NSView()
+    private let loadingIndicator = NSProgressIndicator()
+    private let loadingLabel = NSTextField(labelWithString: "Идет перевод")
+    private var loadingTimer: Timer?
+    private var loadingBaseMessage = "Идет перевод"
+    private var loadingDotFrame = 0
     var onEscape: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -277,29 +284,92 @@ final class OverlayView: NSView {
             self?.onEscape?()
         }
 
-        let scroll = NSScrollView()
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.borderType = .noBorder
-        scroll.documentView = textView
-        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.documentView = textView
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(scroll)
+        loadingContainer.translatesAutoresizingMaskIntoConstraints = false
+        loadingContainer.wantsLayer = false
+        loadingContainer.isHidden = true
+
+        loadingIndicator.style = .spinning
+        loadingIndicator.controlSize = .regular
+        loadingIndicator.isDisplayedWhenStopped = false
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+
+        loadingLabel.textColor = .white
+        loadingLabel.font = NSFont.systemFont(ofSize: 18, weight: .medium)
+        loadingLabel.alignment = .center
+        loadingLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        loadingContainer.addSubview(loadingIndicator)
+        loadingContainer.addSubview(loadingLabel)
+
+        addSubview(scrollView)
+        addSubview(loadingContainer)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor)
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            loadingContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            loadingContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            loadingContainer.topAnchor.constraint(equalTo: topAnchor),
+            loadingContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            loadingIndicator.centerXAnchor.constraint(equalTo: loadingContainer.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: loadingContainer.centerYAnchor, constant: -12),
+
+            loadingLabel.topAnchor.constraint(equalTo: loadingIndicator.bottomAnchor, constant: 14),
+            loadingLabel.centerXAnchor.constraint(equalTo: loadingContainer.centerXAnchor),
+            loadingLabel.leadingAnchor.constraint(greaterThanOrEqualTo: loadingContainer.leadingAnchor, constant: 20),
+            loadingLabel.trailingAnchor.constraint(lessThanOrEqualTo: loadingContainer.trailingAnchor, constant: -20)
         ])
     }
 
     required init?(coder: NSCoder) { nil }
 
     func updateText(_ text: String) {
+        stopLoadingAnimation()
+        loadingIndicator.stopAnimation(nil)
+        loadingContainer.isHidden = true
+        scrollView.isHidden = false
         textView.string = text
         textView.scrollToBeginningOfDocument(nil)
         window?.makeFirstResponder(textView)
+    }
+
+    func showLoading(message: String) {
+        startLoadingAnimation(message: message)
+        scrollView.isHidden = true
+        loadingContainer.isHidden = false
+        loadingIndicator.startAnimation(nil)
+    }
+
+    private func startLoadingAnimation(message: String) {
+        loadingBaseMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if loadingBaseMessage.isEmpty {
+            loadingBaseMessage = "Идет перевод"
+        }
+        loadingDotFrame = 0
+        loadingLabel.stringValue = loadingBaseMessage
+        loadingTimer?.invalidate()
+        loadingTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.loadingDotFrame = (self.loadingDotFrame + 1) % 4
+            self.loadingLabel.stringValue = self.loadingBaseMessage + String(repeating: ".", count: self.loadingDotFrame)
+        }
+        RunLoop.main.add(loadingTimer!, forMode: .common)
+    }
+
+    private func stopLoadingAnimation() {
+        loadingTimer?.invalidate()
+        loadingTimer = nil
+        loadingDotFrame = 0
     }
 
     func setFontSize(_ size: CGFloat) {
@@ -351,6 +421,12 @@ final class OverlayController {
             return
         }
         content.updateText(text)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func showLoading(message: String) {
+        content.showLoading(message: message)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
@@ -1778,9 +1854,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.setFontSize(settings.fontSize)
 
         hotKey.onTrigger = { [weak self] in
-            self?.selection.fetchSelectedText { text in
+            guard let self else { return }
+            self.selection.fetchSelectedText { [weak self] text in
                 guard let self else { return }
                 let sourceText = text ?? ""
+
+                guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    self.overlay.show(text: "Не удалось получить выделенный текст.")
+                    return
+                }
+
+                self.overlay.showLoading(message: "Идет перевод")
 
                 self.translator.translateToRussian(sourceText) { translated in
                     let finalText = translated ?? sourceText
