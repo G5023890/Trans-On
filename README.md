@@ -27,6 +27,62 @@ Provider switch is available in:
 - `Menu bar icon -> Translation Method -> Google Cloud API` (official API)
 - `Menu bar icon -> Translation Method -> Argos (offline)` (local translation via installed Argos CLI)
 
+## Unified offline translator (Argos + NLLB)
+
+Project now includes a local unified translator module:
+
+- `translator_engine.py`
+- `translate` (CLI wrapper)
+
+Supported languages in this module: `he`, `en`, `ru`.
+
+Engine selection logic (`mode=auto`):
+
+- if source language is `he` -> `NLLB`
+- if text length is over `200` chars -> `NLLB`
+- otherwise -> `Argos`
+
+Mode override:
+
+- `auto` -> logic above
+- `fast` -> force `Argos`
+- `quality` -> force `NLLB`
+
+### Setup
+
+```bash
+./scripts/setup_offline_translators.sh
+```
+
+The script:
+
+- checks Python `3.11+`
+- creates virtual environment at `~/Library/Application Support/OfflineTranslators/.venv`
+- installs `ctranslate2`, `sentencepiece`, `transformers` into that virtual environment
+- prepares:
+  - `~/Library/Application Support/OfflineTranslators/argos`
+  - `~/Library/Application Support/OfflineTranslators/nllb`
+- downloads and converts `facebook/nllb-200-distilled-600M` to CTranslate2 `int8`
+
+To only install dependencies (without model download):
+
+```bash
+SKIP_MODEL_DOWNLOAD=1 ./scripts/setup_offline_translators.sh
+```
+
+### CLI examples
+
+```bash
+./translate "текст" --from he --to ru
+./translate "text" --from en --to ru --mode quality
+```
+
+CLI output includes:
+
+- selected engine
+- translation time
+- translation result
+
 ### Google Cloud API key
 
 - Menu path: `Menu bar icon -> Translation Method -> Google Cloud API key…`

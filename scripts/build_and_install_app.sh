@@ -7,6 +7,8 @@ cd "$PROJECT_DIR"
 APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Trans-On}"
 EXECUTABLE_NAME="${EXECUTABLE_NAME:-SelectedTextOverlay}"
 BUNDLE_ID="${BUNDLE_ID:-com.grigorym.SelectedTextOverlay}"
+APP_VERSION="${APP_VERSION:-1.01}"
+APP_BUILD="${APP_BUILD:-1}"
 APP_DIR="${APP_DIR:-dist/${APP_DISPLAY_NAME}.app}"
 INSTALL_DIR="${INSTALL_DIR:-/Applications/${APP_DISPLAY_NAME}.app}"
 LEGACY_INSTALL_DIR="${LEGACY_INSTALL_DIR:-/Applications/SelectedTextOverlay.app}"
@@ -164,6 +166,20 @@ mkdir -p "$APP_STAGE/Contents/MacOS" "$APP_STAGE/Contents/Resources"
 cp "$BIN_PATH" "$APP_STAGE/Contents/MacOS/${EXECUTABLE_NAME}"
 chmod +x "$APP_STAGE/Contents/MacOS/${EXECUTABLE_NAME}"
 
+if [[ -f "$PROJECT_DIR/translator_engine.py" ]]; then
+  /usr/bin/ditto --norsrc "$PROJECT_DIR/translator_engine.py" "$APP_STAGE/Contents/Resources/translator_engine.py"
+  chmod 644 "$APP_STAGE/Contents/Resources/translator_engine.py"
+else
+  log "translator_engine.py not found in project root; offline NLLB mode in app may be unavailable"
+fi
+
+if [[ -f "$PROJECT_DIR/scripts/setup_offline_translators.sh" ]]; then
+  /usr/bin/ditto --norsrc "$PROJECT_DIR/scripts/setup_offline_translators.sh" "$APP_STAGE/Contents/Resources/setup_offline_translators.sh"
+  chmod 755 "$APP_STAGE/Contents/Resources/setup_offline_translators.sh"
+else
+  log "setup_offline_translators.sh not found; NLLB update action in app may be unavailable"
+fi
+
 if [[ -n "$ICON_PATH" ]]; then
   /usr/bin/ditto --norsrc "$ICON_PATH" "$APP_STAGE/Contents/Resources/AppIcon.icns"
   xattr -c "$APP_STAGE/Contents/Resources/AppIcon.icns" 2>/dev/null || true
@@ -198,9 +214,9 @@ ${ICON_PLIST_BLOCK}
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${APP_BUILD}</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>LSUIElement</key>

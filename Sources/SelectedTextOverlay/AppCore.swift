@@ -38,19 +38,18 @@ struct HotKeyChoice {
     ]
 }
 
-enum TranslationProvider: Int {
-    case webGtx = 0
-    case googleCloud = 1
-    case argos = 2
+enum TranslationEngine: String, CaseIterable, Identifiable {
+    case googleAPI
+    case googleWeb
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .webGtx:
-            return "Google Web (gtx)"
-        case .googleCloud:
+        case .googleAPI:
             return "Google Cloud API"
-        case .argos:
-            return "Argos (offline)"
+        case .googleWeb:
+            return "Google Web (gtx)"
         }
     }
 }
@@ -134,7 +133,7 @@ final class AppSettings {
     private let hotKeyModifiersKey = AppSettings.hotKeyModifiersDefaultsKey
     private let fontSizeKey = AppSettings.fontSizeDefaultsKey
     private let launchAtLoginKey = AppSettings.launchAtLoginDefaultsKey
-    private let translationProviderKey = "translationProvider"
+    private let translationEngineKey = "translationEngine"
     private let legacyGoogleCloudApiKeyKey = "googleCloudApiKey"
     private let googleCloudApiKeyAccount = "googleCloudApiKey"
     private let argosDirectHeRuInstalledKey = "argosDirectHeRuInstalled"
@@ -145,7 +144,7 @@ final class AppSettings {
     private(set) var hotKeyModifiers: UInt32
     private(set) var fontSize: CGFloat
     private(set) var launchAtLogin: Bool
-    private(set) var translationProvider: TranslationProvider
+    private(set) var translationEngineRaw: String
     private(set) var googleCloudApiKey: String
     private(set) var argosDirectHeRuInstalled: Bool
     private(set) var argosLastPackageCheckAt: Date?
@@ -163,7 +162,21 @@ final class AppSettings {
         hotKeyModifiers = UInt32(storedModifiers ?? Int(defaultModifiers))
         fontSize = CGFloat(storedFont ?? 22)
         launchAtLogin = defaults.bool(forKey: launchAtLoginKey)
-        translationProvider = TranslationProvider(rawValue: defaults.integer(forKey: translationProviderKey)) ?? .webGtx
+        let migrated: String
+        if let storedEngine = defaults.string(forKey: translationEngineKey), !storedEngine.isEmpty {
+            migrated = storedEngine
+        } else if defaults.object(forKey: "translationEngine") != nil {
+            let legacy = defaults.integer(forKey: "translationEngine")
+            switch legacy {
+            case 1: migrated = TranslationEngine.googleAPI.rawValue
+            case 2, 3, 4, 5: migrated = TranslationEngine.googleWeb.rawValue
+            default: migrated = TranslationEngine.googleWeb.rawValue
+            }
+            defaults.set(migrated, forKey: translationEngineKey)
+        } else {
+            migrated = TranslationEngine.googleWeb.rawValue
+        }
+        translationEngineRaw = migrated
         argosDirectHeRuInstalled = defaults.bool(forKey: argosDirectHeRuInstalledKey)
         if let timestamp = defaults.object(forKey: argosLastPackageCheckAtKey) as? TimeInterval {
             argosLastPackageCheckAt = Date(timeIntervalSince1970: timestamp)
@@ -204,9 +217,17 @@ final class AppSettings {
         defaults.set(newValue, forKey: launchAtLoginKey)
     }
 
-    func setTranslationProvider(_ provider: TranslationProvider) {
-        translationProvider = provider
-        defaults.set(provider.rawValue, forKey: translationProviderKey)
+    var translationEngine: TranslationEngine {
+        get {
+            let stored = defaults.string(forKey: translationEngineKey) ?? translationEngineRaw
+            return TranslationEngine(rawValue: stored) ?? .googleWeb
+        }
+        set { setTranslationEngine(newValue) }
+    }
+
+    func setTranslationEngine(_ engine: TranslationEngine) {
+        translationEngineRaw = engine.rawValue
+        defaults.set(engine.rawValue, forKey: translationEngineKey)
     }
 
     func setGoogleCloudApiKey(_ newValue: String) {
@@ -237,6 +258,7 @@ final class AppSettings {
         argosLastPackageCheckAt = now
         defaults.set(now.timeIntervalSince1970, forKey: argosLastPackageCheckAtKey)
     }
+
 }
 
 final class OverlayPanel: NSPanel {
@@ -579,6 +601,16 @@ final class TranslationService {
         let summary: String
     }
 
+    struct NLLBUpdateResult {
+        let success: Bool
+        let summary: String
+    }
+
+    struct ModelMaintenanceResult {
+        let success: Bool
+        let summary: String
+    }
+
     private struct ArgosPackageSyncPayload {
         let ok: Bool
         let directAfter: Bool
@@ -595,6 +627,7 @@ final class TranslationService {
     private let maintenanceQueue = DispatchQueue(label: "transon.translation.maintenance", qos: .utility)
     private let argosCliPath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate/bin/argos-translate"
     private let argosBasePath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate"
+    private let offlineTranslatorsRoot = "\(NSHomeDirectory())/Library/Application Support/OfflineTranslators"
     private let maxChunkChars = 1800
     private let maxBatchParagraphs = 6
     private let maxRetries = 3
@@ -718,38 +751,292 @@ final class TranslationService {
         }
     }
 
+    func checkAndUpdateNLLB(completion: @escaping (NLLBUpdateResult) -> Void) {
+        maintenanceQueue.async {
+            guard let scriptPath = self.resolveNLLBSetupScriptPath() else {
+                DispatchQueue.main.async {
+                    completion(
+                        NLLBUpdateResult(
+                            success: false,
+                            summary: "Не найден setup-скрипт NLLB (setup_offline_translators.sh)."
+                        )
+                    )
+                }
+                return
+            }
+
+            guard let pythonPath = self.resolveOfflineTranslatorPythonPath() else {
+                DispatchQueue.main.async {
+                    completion(
+                        NLLBUpdateResult(
+                            success: false,
+                            summary: "Не найден Python для NLLB setup."
+                        )
+                    )
+                }
+                return
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [scriptPath]
+
+            var env = ProcessInfo.processInfo.environment
+            env["PYTHON_BIN"] = pythonPath
+            env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+            env["DO_NOT_TRACK"] = "1"
+            process.environment = env
+
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                DispatchQueue.main.async {
+                    completion(
+                        NLLBUpdateResult(
+                            success: false,
+                            summary: "Не удалось запустить обновление NLLB: \(error.localizedDescription)"
+                        )
+                    )
+                }
+                return
+            }
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputText = String(data: outputData, encoding: .utf8) ?? ""
+            let errorText = String(data: errorData, encoding: .utf8) ?? ""
+
+            let stdoutTail = outputText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .suffix(6)
+                .joined(separator: "\n")
+            let stderrTail = errorText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .suffix(4)
+                .joined(separator: "\n")
+
+            let success = process.terminationStatus == 0
+            var summary = success ? "Проверка/обновление NLLB завершено." : "Ошибка проверки/обновления NLLB (код \(process.terminationStatus))."
+            if !stdoutTail.isEmpty {
+                summary += "\n\n\(stdoutTail)"
+            }
+            if !stderrTail.isEmpty {
+                summary += "\n\nstderr:\n\(stderrTail)"
+            }
+
+            DispatchQueue.main.async {
+                completion(NLLBUpdateResult(success: success, summary: summary))
+            }
+        }
+    }
+
+    func removeNLLBModel(completion: @escaping (ModelMaintenanceResult) -> Void) {
+        maintenanceQueue.async {
+            let env = ProcessInfo.processInfo.environment
+            let nllbPath = env["NLLB_MODEL_DIR"] ?? "\(self.offlineTranslatorsRoot)/nllb"
+            let fm = FileManager.default
+
+            guard fm.fileExists(atPath: nllbPath) else {
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: true, summary: "NLLB модель уже отсутствует: \(nllbPath)"))
+                }
+                return
+            }
+
+            do {
+                try fm.removeItem(atPath: nllbPath)
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: true, summary: "NLLB модель удалена: \(nllbPath)"))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(
+                        ModelMaintenanceResult(
+                            success: false,
+                            summary: "Не удалось удалить NLLB модель: \(error.localizedDescription)"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    func removeArgosPackages(completion: @escaping (ModelMaintenanceResult) -> Void) {
+        maintenanceQueue.async {
+            let env = ProcessInfo.processInfo.environment
+            let packagesPath = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
+            let fm = FileManager.default
+
+            guard fm.fileExists(atPath: packagesPath) else {
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: true, summary: "Папка пакетов Argos не найдена: \(packagesPath)"))
+                }
+                return
+            }
+
+            do {
+                let entries = try fm.contentsOfDirectory(atPath: packagesPath)
+                for entry in entries {
+                    let fullPath = (packagesPath as NSString).appendingPathComponent(entry)
+                    try fm.removeItem(atPath: fullPath)
+                }
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: true, summary: "Пакеты Argos удалены из: \(packagesPath)"))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(
+                        ModelMaintenanceResult(
+                            success: false,
+                            summary: "Не удалось удалить пакеты Argos: \(error.localizedDescription)"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    func installArgosLanguagePair(from fromCode: String, to toCode: String, completion: @escaping (ModelMaintenanceResult) -> Void) {
+        maintenanceQueue.async {
+            let normalizedFrom = fromCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedTo = toCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalizedFrom.isEmpty, !normalizedTo.isEmpty else {
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: false, summary: "Коды языков не должны быть пустыми."))
+                }
+                return
+            }
+
+            let pythonPath = "/usr/bin/python3"
+            guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: false, summary: "Не найден Python: \(pythonPath)"))
+                }
+                return
+            }
+
+            let script = #"""
+import json
+import re
+import sys
+
+from_code = sys.argv[1]
+to_code = sys.argv[2]
+result = {"ok": False, "summary": ""}
+
+def version_tuple(value):
+    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))]
+    return tuple(parts) if parts else (0,)
+
+try:
+    import argostranslate.package as package
+    package.update_package_index()
+    available = package.get_available_packages()
+    candidates = [p for p in available if getattr(p, "from_code", "") == from_code and getattr(p, "to_code", "") == to_code]
+    if not candidates:
+        result["summary"] = f"Пара {from_code}->{to_code} не найдена в индексе Argos."
+    else:
+        best = sorted(candidates, key=lambda p: version_tuple(getattr(p, "version", "0")), reverse=True)[0]
+        path = best.download()
+        package.install_from_path(path)
+        result["ok"] = True
+        result["summary"] = f"Установлена пара {from_code}->{to_code} (version {getattr(best, 'version', 'unknown')})."
+except Exception as exc:
+    result["summary"] = f"Ошибка установки {from_code}->{to_code}: {exc}"
+
+print(json.dumps(result, ensure_ascii=False))
+"""#
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: pythonPath)
+            process.arguments = ["-c", script, normalizedFrom, normalizedTo]
+
+            var env = ProcessInfo.processInfo.environment
+            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
+            let pythonLibPath = "\(self.argosBasePath)/python_lib"
+            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
+                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
+            } else {
+                env["PYTHONPATH"] = pythonLibPath
+            }
+            process.environment = env
+
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            process.standardOutput = outPipe
+            process.standardError = errPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: false, summary: "Не удалось запустить установку Argos пары: \(error.localizedDescription)"))
+                }
+                return
+            }
+
+            let outText = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let errText = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+            if let data = outText.data(using: .utf8),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let ok = root["ok"] as? Bool ?? false
+                let summary = (root["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Операция завершена."
+                DispatchQueue.main.async {
+                    completion(ModelMaintenanceResult(success: ok, summary: summary))
+                }
+                return
+            }
+
+            let fallbackSummary = "Не удалось разобрать ответ установки Argos.\n\(errText.prefix(300))"
+            DispatchQueue.main.async {
+                completion(ModelMaintenanceResult(success: false, summary: fallbackSummary))
+            }
+        }
+    }
+
     func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let provider = settings.translationProvider
+        let source = text
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = settings.translationEngine
         guard !trimmed.isEmpty else {
             completion(nil)
             return
         }
 
         if shouldSkipTranslation(trimmed) {
-            completion(trimmed)
+            completion(source)
             return
         }
 
         workerQueue.async { [weak self] in
             guard let self else {
-                DispatchQueue.main.async { completion(trimmed) }
+                DispatchQueue.main.async { completion(source) }
                 return
             }
 
-            let (segments, paragraphs) = self.extractParagraphs(from: trimmed)
+            let (segments, paragraphs) = self.extractParagraphs(from: source)
             let translatable = paragraphs.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             let chunks = self.makeChunks(from: translatable, maxChars: self.maxChunkChars, maxParagraphs: self.maxBatchParagraphs)
 
             guard !chunks.isEmpty else {
-                DispatchQueue.main.async { completion(trimmed) }
+                DispatchQueue.main.async { completion(source) }
                 return
             }
 
             self.translateChunks(chunks, at: 0, provider: provider, translatedByParagraph: [:]) { translatedByParagraph in
                 let merged = self.reassemble(segments: segments, paragraphs: paragraphs, translatedByParagraph: translatedByParagraph)
                 DispatchQueue.main.async {
-                    completion(merged ?? trimmed)
+                    completion(merged ?? source)
                 }
             }
         }
@@ -758,7 +1045,7 @@ final class TranslationService {
     private func extractParagraphs(from text: String) -> ([Segment], [ParagraphItem]) {
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
-        let separatorRegex = try? NSRegularExpression(pattern: #"\n\s*\n+"#)
+        let separatorRegex = try? NSRegularExpression(pattern: #"(?:\r\n|\n|\r)+"#)
         let matches = separatorRegex?.matches(in: text, options: [], range: fullRange) ?? []
 
         var segments: [Segment] = []
@@ -816,10 +1103,54 @@ final class TranslationService {
         return result
     }
 
+    private func mergeWhitespaceFormatting(original: String, translated: String) -> String {
+        let (leading, core, trailing) = splitEdgeWhitespace(in: original)
+        guard !core.isEmpty else {
+            return original
+        }
+
+        let translatedCore = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !translatedCore.isEmpty else {
+            return original
+        }
+
+        return leading + translatedCore + trailing
+    }
+
+    private func splitEdgeWhitespace(in text: String) -> (leading: String, core: String, trailing: String) {
+        guard !text.isEmpty else {
+            return ("", "", "")
+        }
+
+        let chars = Array(text)
+        var start = 0
+        while start < chars.count, isHorizontalWhitespace(chars[start]) {
+            start += 1
+        }
+
+        guard start < chars.count else {
+            return (text, "", "")
+        }
+
+        var end = chars.count - 1
+        while end >= start, isHorizontalWhitespace(chars[end]) {
+            end -= 1
+        }
+
+        let leading = start > 0 ? String(chars[0..<start]) : ""
+        let core = String(chars[start...end])
+        let trailing = end + 1 < chars.count ? String(chars[(end + 1)..<chars.count]) : ""
+        return (leading, core, trailing)
+    }
+
+    private func isHorizontalWhitespace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
+    }
+
     private func translateChunks(
         _ chunks: [[ParagraphItem]],
         at index: Int,
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         translatedByParagraph: [Int: String],
         completion: @escaping ([Int: String]) -> Void
     ) {
@@ -837,7 +1168,7 @@ final class TranslationService {
 
             var merged = translatedByParagraph
             for (offset, item) in chunk.enumerated() {
-                merged[item.index] = translated[offset]
+                merged[item.index] = self.mergeWhitespaceFormatting(original: item.text, translated: translated[offset])
             }
 
             let delay = Double.random(in: 0.3...0.5)
@@ -849,7 +1180,7 @@ final class TranslationService {
 
     private func translateChunkWithRetry(
         _ chunk: [ParagraphItem],
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         attempt: Int,
         completion: @escaping ([String]) -> Void
     ) {
@@ -879,7 +1210,7 @@ final class TranslationService {
 
     private func translateChunkIndividually(
         _ chunk: [ParagraphItem],
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         at index: Int,
         translated: [String],
         completion: @escaping ([String]) -> Void
@@ -903,7 +1234,7 @@ final class TranslationService {
 
     private func translateParagraphWithRetry(
         _ text: String,
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         attempt: Int,
         completion: @escaping (String?) -> Void
     ) {
@@ -919,7 +1250,7 @@ final class TranslationService {
 
     private func translateParagraphParts(
         _ parts: [String],
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         at index: Int,
         translatedParts: [String],
         attempt: Int,
@@ -956,7 +1287,7 @@ final class TranslationService {
 
     private func requestBatchTranslation(
         for paragraphs: [String],
-        provider: TranslationProvider,
+        provider: TranslationEngine,
         completion: @escaping ([String]?) -> Void
     ) {
         guard !paragraphs.isEmpty else {
@@ -965,7 +1296,7 @@ final class TranslationService {
         }
 
         switch provider {
-        case .webGtx:
+        case .googleWeb:
             requestWebGtxBatchTranslation(for: paragraphs) { [weak self] translated in
                 guard let self else {
                     completion(translated)
@@ -984,7 +1315,7 @@ final class TranslationService {
                     self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
                 }
             }
-        case .googleCloud:
+        case .googleAPI:
             requestGoogleCloudBatchTranslation(for: paragraphs) { [weak self] translated in
                 guard let self else {
                     completion(translated)
@@ -1005,22 +1336,185 @@ final class TranslationService {
                     self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
                 }
             }
-        case .argos:
-            requestArgosBatchTranslation(for: paragraphs) { [weak self] translated in
-                guard let self else {
-                    completion(translated)
-                    return
-                }
+        }
+    }
 
-                if translated != nil {
-                    completion(translated)
-                    return
-                }
+    private func requestUnifiedOfflineBatchTranslation(
+        for paragraphs: [String],
+        mode: String,
+        completion: @escaping ([String]?) -> Void
+    ) {
+        requestUnifiedOfflineBatchTranslation(paragraphs, mode: mode, at: 0, translated: [], completion: completion)
+    }
 
-                NSLog("Argos translation failed, falling back to Google Web (gtx) chain.")
-                self.requestBatchTranslation(for: paragraphs, provider: .webGtx, completion: completion)
+    private func requestUnifiedOfflineBatchTranslation(
+        _ paragraphs: [String],
+        mode: String,
+        at index: Int,
+        translated: [String],
+        completion: @escaping ([String]?) -> Void
+    ) {
+        guard index < paragraphs.count else {
+            completion(translated)
+            return
+        }
+
+        requestUnifiedOfflineTranslation(for: paragraphs[index], mode: mode) { [weak self] item in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            guard let item else {
+                completion(nil)
+                return
+            }
+            self.requestUnifiedOfflineBatchTranslation(
+                paragraphs,
+                mode: mode,
+                at: index + 1,
+                translated: translated + [item],
+                completion: completion
+            )
+        }
+    }
+
+    private func requestUnifiedOfflineTranslation(
+        for text: String,
+        mode: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        workerQueue.async {
+            guard let scriptPath = self.resolveOfflineTranslatorScriptPath() else {
+                NSLog("Offline translator script not found (translator_engine.py).")
+                completion(nil)
+                return
+            }
+
+            guard let pythonPath = self.resolveOfflineTranslatorPythonPath() else {
+                NSLog("Python runtime for offline translator not found.")
+                completion(nil)
+                return
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: pythonPath)
+            process.arguments = [scriptPath, text, "--from", "auto", "--to", "ru", "--mode", mode]
+
+            var env = ProcessInfo.processInfo.environment
+            env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+            env["DO_NOT_TRACK"] = "1"
+            env["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+            process.environment = env
+
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                NSLog("Offline translator process start failed: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputText = String(data: outputData, encoding: .utf8) ?? ""
+            let errorText = String(data: errorData, encoding: .utf8) ?? ""
+
+            guard process.terminationStatus == 0 else {
+                let stderr = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let stdout = outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                NSLog("Offline translator failed (\(process.terminationStatus)). stderr=\(stderr.prefix(240)) stdout=\(stdout.prefix(240))")
+                completion(nil)
+                return
+            }
+
+            guard let translated = Self.parseUnifiedTranslatorOutput(outputText), !translated.isEmpty else {
+                let stderr = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                NSLog("Offline translator output parse failed. stderr=\(stderr.prefix(240))")
+                completion(nil)
+                return
+            }
+
+            completion(translated)
+        }
+    }
+
+    private func resolveOfflineTranslatorScriptPath() -> String? {
+        if let explicit = ProcessInfo.processInfo.environment["OFFLINE_TRANSLATOR_ENGINE_PATH"],
+           FileManager.default.fileExists(atPath: explicit) {
+            return explicit
+        }
+
+        if let fromBundle = Bundle.main.url(forResource: "translator_engine", withExtension: "py")?.path,
+           FileManager.default.fileExists(atPath: fromBundle) {
+            return fromBundle
+        }
+
+        let cwdPath = FileManager.default.currentDirectoryPath + "/translator_engine.py"
+        if FileManager.default.fileExists(atPath: cwdPath) {
+            return cwdPath
+        }
+
+        return nil
+    }
+
+    private func resolveOfflineTranslatorPythonPath() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        let home = NSHomeDirectory()
+        let offlineRoot = env["OFFLINE_TRANSLATORS_HOME"] ?? "\(home)/Library/Application Support/OfflineTranslators"
+        let defaultVenv = (env["OFFLINE_TRANSLATORS_VENV"] ?? "\(offlineRoot)/.venv")
+
+        let candidates = [
+            env["TRANSLATOR_PYTHON_BIN"],
+            "\(defaultVenv)/bin/python",
+            "/opt/homebrew/bin/python3.12",
+            "/usr/bin/python3"
+        ]
+
+        for candidate in candidates {
+            guard let path = candidate else { continue }
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
             }
         }
+        return nil
+    }
+
+    private func resolveNLLBSetupScriptPath() -> String? {
+        if let explicit = ProcessInfo.processInfo.environment["NLLB_SETUP_SCRIPT_PATH"],
+           FileManager.default.isExecutableFile(atPath: explicit) {
+            return explicit
+        }
+
+        if let fromBundle = Bundle.main.url(forResource: "setup_offline_translators", withExtension: "sh")?.path,
+           FileManager.default.isExecutableFile(atPath: fromBundle) {
+            return fromBundle
+        }
+
+        let cwdPath = FileManager.default.currentDirectoryPath + "/scripts/setup_offline_translators.sh"
+        if FileManager.default.isExecutableFile(atPath: cwdPath) {
+            return cwdPath
+        }
+
+        return nil
+    }
+
+    private static func parseUnifiedTranslatorOutput(_ output: String) -> String? {
+        let lines = output
+            .split(whereSeparator: \.isNewline)
+            .map { String($0) }
+
+        if let line = lines.reversed().first(where: { $0.hasPrefix("Result: ") }) {
+            return String(line.dropFirst("Result: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func requestWebGtxBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
@@ -1733,11 +2227,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchAtLogin = LaunchAtLoginManager()
 
     private var statusItem: NSStatusItem?
-    private var webGtxProviderItem: NSMenuItem?
-    private var googleCloudProviderItem: NSMenuItem?
-    private var argosProviderItem: NSMenuItem?
-    private var googleCloudApiKeyMenuItem: NSMenuItem?
-    private var argosPackageUpdateMenuItem: NSMenuItem?
     private weak var settingsViewModel: SettingsViewModel?
     private var fallbackSettingsWindowController: NSWindowController?
 
@@ -1788,6 +2277,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.onFontSizeChanged = { [weak self] size in
             self?.overlay.setFontSize(size)
         }
+        viewModel.onCheckAndUpdateArgos = { [weak self] callback in
+            guard let self else {
+                callback(false, "AppDelegate недоступен")
+                return
+            }
+            self.translator.checkAndUpdateArgosPackages { result in
+                if result.success {
+                    self.settings.updateArgosPackageStatus(
+                        directHeRuInstalled: result.directHeRuInstalled,
+                        summary: result.summary
+                    )
+                }
+                callback(result.success, result.summary)
+            }
+        }
+        viewModel.onCheckAndUpdateNLLB = { [weak self] callback in
+            guard let self else {
+                callback(false, "AppDelegate недоступен")
+                return
+            }
+            self.translator.checkAndUpdateNLLB { result in
+                callback(result.success, result.summary)
+            }
+        }
+        viewModel.onRemoveArgosPackages = { [weak self] callback in
+            guard let self else {
+                callback(false, "AppDelegate недоступен")
+                return
+            }
+            self.translator.removeArgosPackages { result in
+                self.settings.updateArgosPackageStatus(directHeRuInstalled: false, summary: result.summary)
+                callback(result.success, result.summary)
+            }
+        }
+        viewModel.onRemoveNLLBModel = { [weak self] callback in
+            guard let self else {
+                callback(false, "AppDelegate недоступен")
+                return
+            }
+            self.translator.removeNLLBModel { result in
+                callback(result.success, result.summary)
+            }
+        }
+        viewModel.onInstallArgosPair = { [weak self] fromCode, toCode, callback in
+            guard let self else {
+                callback(false, "AppDelegate недоступен")
+                return
+            }
+            self.translator.installArgosLanguagePair(from: fromCode, to: toCode) { result in
+                if result.success {
+                    self.settings.updateArgosPackageStatus(directHeRuInstalled: nil, summary: result.summary)
+                }
+                callback(result.success, result.summary)
+            }
+        }
+        viewModel.refreshModelState()
     }
 
     @MainActor
@@ -1824,85 +2369,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
-    }
-
-    @objc private func selectWebGtxProvider() {
-        settings.setTranslationProvider(.webGtx)
-        updateTranslationProviderMenuState()
-    }
-
-    @objc private func selectGoogleCloudProvider() {
-        settings.setTranslationProvider(.googleCloud)
-        updateTranslationProviderMenuState()
-    }
-
-    @objc private func selectArgosProvider() {
-        settings.setTranslationProvider(.argos)
-        updateTranslationProviderMenuState()
-    }
-
-    @objc private func configureGoogleCloudApiKey() {
-        let alert = NSAlert()
-        alert.messageText = "Google Cloud API key"
-        alert.informativeText = "Введите API key для официального Google Cloud Translation API. Ключ хранится в macOS Keychain. Можно оставить пустым, если используете переменную окружения."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Сохранить")
-        alert.addButton(withTitle: "Отмена")
-        alert.addButton(withTitle: "Очистить")
-
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
-        input.placeholderString = "AIza..."
-        input.stringValue = settings.googleCloudApiKey
-        alert.accessoryView = input
-
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            settings.setGoogleCloudApiKey(input.stringValue)
-        case .alertThirdButtonReturn:
-            settings.setGoogleCloudApiKey("")
-        default:
-            break
-        }
-
-        updateTranslationProviderMenuState()
-    }
-
-    @objc private func checkAndUpdateArgosPackages() {
-        argosPackageUpdateMenuItem?.isEnabled = false
-        argosPackageUpdateMenuItem?.title = "Проверка пакетов Argos…"
-
-        translator.checkAndUpdateArgosPackages { [weak self] result in
-            guard let self else { return }
-
-            if result.success {
-                self.settings.updateArgosPackageStatus(
-                    directHeRuInstalled: result.directHeRuInstalled,
-                    summary: result.summary
-                )
-            }
-
-            self.argosPackageUpdateMenuItem?.isEnabled = true
-            self.updateTranslationProviderMenuState()
-
-            let alert = NSAlert()
-            alert.alertStyle = result.success ? .informational : .warning
-            alert.messageText = result.success ? "Пакеты Argos проверены" : "Ошибка проверки Argos"
-            alert.informativeText = result.summary
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
-    }
-
-    private func updateTranslationProviderMenuState() {
-        let provider = settings.translationProvider
-        webGtxProviderItem?.state = provider == .webGtx ? .on : .off
-        googleCloudProviderItem?.state = provider == .googleCloud ? .on : .off
-        argosProviderItem?.state = provider == .argos ? .on : .off
-        let hasApiKey = !settings.googleCloudApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        googleCloudApiKeyMenuItem?.title = hasApiKey ? "Google Cloud API key… (сохранён)" : "Google Cloud API key…"
-        let heRuState = settings.argosDirectHeRuInstalled ? "установлен" : "не установлен"
-        argosPackageUpdateMenuItem?.title = "Проверить/обновить пакеты Argos… (he->ru: \(heRuState))"
     }
 
     private func makeMenuBarBadgeImage() -> NSImage? {
@@ -1964,43 +2430,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Настройки…", action: #selector(openSettings), keyEquivalent: ","))
-        let providerRootItem = NSMenuItem(title: "Способ перевода", action: nil, keyEquivalent: "")
-        let providerSubmenu = NSMenu(title: "Способ перевода")
-
-        let webItem = NSMenuItem(title: TranslationProvider.webGtx.title, action: #selector(selectWebGtxProvider), keyEquivalent: "")
-        webItem.target = self
-        providerSubmenu.addItem(webItem)
-
-        let cloudItem = NSMenuItem(title: TranslationProvider.googleCloud.title, action: #selector(selectGoogleCloudProvider), keyEquivalent: "")
-        cloudItem.target = self
-        providerSubmenu.addItem(cloudItem)
-
-        let argosItem = NSMenuItem(title: TranslationProvider.argos.title, action: #selector(selectArgosProvider), keyEquivalent: "")
-        argosItem.target = self
-        providerSubmenu.addItem(argosItem)
-
-        providerSubmenu.addItem(NSMenuItem.separator())
-        let apiKeyItem = NSMenuItem(title: "Google Cloud API key…", action: #selector(configureGoogleCloudApiKey), keyEquivalent: "")
-        apiKeyItem.target = self
-        providerSubmenu.addItem(apiKeyItem)
-
-        let argosPackagesItem = NSMenuItem(title: "Проверить/обновить пакеты Argos…", action: #selector(checkAndUpdateArgosPackages), keyEquivalent: "")
-        argosPackagesItem.target = self
-        providerSubmenu.addItem(argosPackagesItem)
-
-        providerRootItem.submenu = providerSubmenu
-        menu.addItem(providerRootItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Выйти", action: #selector(quitApp), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
-
-        webGtxProviderItem = webItem
-        googleCloudProviderItem = cloudItem
-        argosProviderItem = argosItem
-        googleCloudApiKeyMenuItem = apiKeyItem
-        argosPackageUpdateMenuItem = argosPackagesItem
-        updateTranslationProviderMenuState()
 
         statusItem = item
     }

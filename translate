@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OFFLINE_ROOT="${OFFLINE_TRANSLATORS_HOME:-$HOME/Library/Application Support/OfflineTranslators}"
+VENV_DIR="${OFFLINE_TRANSLATORS_VENV:-$OFFLINE_ROOT/.venv}"
+PYTHON_BIN="${TRANSLATOR_PYTHON_BIN:-}"
+
+if [ -z "${PYTHON_BIN}" ]; then
+  if [ -x "${VENV_DIR}/bin/python" ]; then
+    PYTHON_BIN="${VENV_DIR}/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
+
+exec "${PYTHON_BIN}" "${SCRIPT_DIR}/translator_engine.py" "$@"
