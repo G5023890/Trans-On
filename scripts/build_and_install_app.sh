@@ -4,16 +4,21 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+
 APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Trans-On}"
-EXECUTABLE_NAME="${EXECUTABLE_NAME:-SelectedTextOverlay}"
-BUNDLE_ID="${BUNDLE_ID:-com.grigorym.SelectedTextOverlay}"
+BUNDLE_ID="${BUNDLE_ID:-com.grigorym.TransOn}"
 APP_VERSION="${APP_VERSION:-1.01}"
 APP_BUILD="${APP_BUILD:-1}"
 APP_DIR="${APP_DIR:-dist/${APP_DISPLAY_NAME}.app}"
 INSTALL_DIR="${INSTALL_DIR:-/Applications/${APP_DISPLAY_NAME}.app}"
 LEGACY_INSTALL_DIR="${LEGACY_INSTALL_DIR:-/Applications/SelectedTextOverlay.app}"
+XCODEPROJ_PATH="${XCODEPROJ_PATH:-TransOn.xcodeproj}"
+SCHEME="${SCHEME:-TransOn}"
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$PROJECT_DIR/.xcodebuild/DerivedDataReleaseUnsigned}"
 ICON_SOURCE="${ICON_SOURCE:-}"
 MENUBAR_ICON_SOURCE="${MENUBAR_ICON_SOURCE:-}"
+MENUBAR_CONTROL_ICON_SOURCE="${MENUBAR_CONTROL_ICON_SOURCE:-}"
 SKIP_SIGN="${SKIP_SIGN:-0}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 RESOLVED_SIGN_IDENTITY=""
@@ -35,7 +40,6 @@ pick_icon_source() {
     "$PROJECT_DIR/assets/AppIcon.icns"
     "$PROJECT_DIR/Assets/AppIcon.icns"
     "$PROJECT_DIR/Resources/AppIcon.icns"
-    "$PROJECT_DIR/dist/AppIcon.icns"
     "/Applications/${APP_DISPLAY_NAME}.app/Contents/Resources/AppIcon.icns"
     "$LEGACY_INSTALL_DIR/Contents/Resources/AppIcon.icns"
   )
@@ -62,7 +66,6 @@ pick_menubar_icon_source() {
     "$PROJECT_DIR/assets/MenuBarIcon.png"
     "$PROJECT_DIR/Assets/MenuBarIcon.png"
     "$PROJECT_DIR/Resources/MenuBarIcon.png"
-    "$PROJECT_DIR/dist/MenuBarIcon.png"
     "/Applications/${APP_DISPLAY_NAME}.app/Contents/Resources/MenuBarIcon.png"
     "$LEGACY_INSTALL_DIR/Contents/Resources/MenuBarIcon.png"
   )
@@ -78,23 +81,30 @@ pick_menubar_icon_source() {
   return 1
 }
 
-sign_bundle_if_needed() {
-  local bundle="$1"
-
-  if [[ "$SKIP_SIGN" == "1" ]]; then
-    log "Skipping codesign (SKIP_SIGN=1)"
+pick_menubar_control_icon_source() {
+  if [[ -n "$MENUBAR_CONTROL_ICON_SOURCE" && -f "$MENUBAR_CONTROL_ICON_SOURCE" ]]; then
+    echo "$MENUBAR_CONTROL_ICON_SOURCE"
     return 0
   fi
 
-  if [[ -n "$RESOLVED_SIGN_IDENTITY" ]]; then
-    log "Signing with identity: $RESOLVED_SIGN_IDENTITY"
-    codesign --force --deep --options runtime --sign "$RESOLVED_SIGN_IDENTITY" "$bundle"
-  else
-    log "No Apple Development identity found; using ad-hoc signature"
-    codesign --force --deep --sign - "$bundle"
-  fi
+  local candidates=(
+    "$PROJECT_DIR/MenuBarControl.png"
+    "$PROJECT_DIR/assets/MenuBarControl.png"
+    "$PROJECT_DIR/Assets/MenuBarControl.png"
+    "$PROJECT_DIR/Resources/MenuBarControl.png"
+    "/Applications/${APP_DISPLAY_NAME}.app/Contents/Resources/MenuBarControl.png"
+    "$LEGACY_INSTALL_DIR/Contents/Resources/MenuBarControl.png"
+  )
 
-  codesign --verify --deep --strict "$bundle"
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 resolve_sign_identity() {
@@ -125,9 +135,112 @@ resolve_sign_identity() {
   fi
 }
 
+stage_override_resource() {
+  local source_path="$1"
+  local destination_name="$2"
+
+  if [[ -z "$source_path" || ! -f "$source_path" ]]; then
+    return 0
+  fi
+
+  /usr/bin/ditto --norsrc "$source_path" "$APP_STAGE/Contents/Resources/$destination_name"
+  xattr -c "$APP_STAGE/Contents/Resources/$destination_name" 2>/dev/null || true
+}
+
+sign_extension_if_needed() {
+  local appex="$1"
+  local entitlements_path="$PROJECT_DIR/Config/TransOnControlsExtension.entitlements"
+
+  if [[ "$SKIP_SIGN" == "1" ]]; then
+    log "Skipping extension codesign (SKIP_SIGN=1)"
+    return 0
+  fi
+
+  if [[ -n "$RESOLVED_SIGN_IDENTITY" ]]; then
+    log "Signing extension with identity: $RESOLVED_SIGN_IDENTITY"
+    codesign --force --sign "$RESOLVED_SIGN_IDENTITY" --entitlements "$entitlements_path" --timestamp=none --generate-entitlement-der "$appex"
+  else
+    log "No Apple Development identity found; using ad-hoc signature for extension"
+    codesign --force --sign - --entitlements "$entitlements_path" --timestamp=none --generate-entitlement-der "$appex"
+  fi
+}
+
+sign_app_if_needed() {
+  local bundle="$1"
+  local entitlements_path="$PROJECT_DIR/Config/TransOn.entitlements"
+
+  if [[ "$SKIP_SIGN" == "1" ]]; then
+    log "Skipping app codesign (SKIP_SIGN=1)"
+    return 0
+  fi
+
+  if [[ -n "$RESOLVED_SIGN_IDENTITY" ]]; then
+    log "Signing app with identity: $RESOLVED_SIGN_IDENTITY"
+    codesign --force --options runtime --entitlements "$entitlements_path" --sign "$RESOLVED_SIGN_IDENTITY" --timestamp=none "$bundle"
+  else
+    log "No Apple Development identity found; using ad-hoc signature for app"
+    codesign --force --entitlements "$entitlements_path" --sign - --timestamp=none "$bundle"
+  fi
+
+  codesign --verify --deep --strict "$bundle"
+}
+
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "xcodegen is required but not installed." >&2
+  exit 1
+fi
+
+if [[ ! -d "$DEVELOPER_DIR" ]]; then
+  echo "DEVELOPER_DIR does not exist: $DEVELOPER_DIR" >&2
+  exit 1
+fi
+
 resolve_sign_identity
 if [[ -n "$RESOLVED_SIGN_IDENTITY" ]]; then
   log "Resolved signing identity: $RESOLVED_SIGN_IDENTITY"
+fi
+
+log "Generating Xcode project"
+xcodegen --use-cache
+
+rm -rf "$DERIVED_DATA_PATH"
+
+log "Building unsigned Release app via xcodebuild"
+xcodebuild \
+  -project "$XCODEPROJ_PATH" \
+  -scheme "$SCHEME" \
+  -configuration Release \
+  -derivedDataPath "$DERIVED_DATA_PATH" \
+  CODE_SIGNING_ALLOWED=NO \
+  MARKETING_VERSION="$APP_VERSION" \
+  CURRENT_PROJECT_VERSION="$APP_BUILD" \
+  build
+
+SOURCE_APP="$DERIVED_DATA_PATH/Build/Products/Release/${APP_DISPLAY_NAME}.app"
+if [[ ! -d "$SOURCE_APP" ]]; then
+  echo "Built app not found: $SOURCE_APP" >&2
+  exit 1
+fi
+
+ICON_PATH=""
+if ICON_PATH="$(pick_icon_source)"; then
+  log "Using icon: $ICON_PATH"
+else
+  log "Icon not found; keeping Xcode-built app icon"
+fi
+
+MENUBAR_ICON_PATH=""
+if MENUBAR_ICON_PATH="$(pick_menubar_icon_source)"; then
+  log "Using menu bar icon: $MENUBAR_ICON_PATH"
+else
+  log "Menu bar icon not found; keeping Xcode-built menu bar icon"
+fi
+
+MENUBAR_CONTROL_ICON_PATH=""
+if MENUBAR_CONTROL_ICON_PATH="$(pick_menubar_control_icon_source)"; then
+  log "Using menu bar control icon: $MENUBAR_CONTROL_ICON_PATH"
+else
+  log "Menu bar control icon not found; keeping Xcode-built control icon"
 fi
 
 STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/transon-build.XXXXXX")"
@@ -139,110 +252,48 @@ cleanup() {
 }
 trap cleanup EXIT
 
-swift build -c release
-BIN_DIR="$(swift build -c release --show-bin-path)"
-BIN_PATH="$BIN_DIR/$EXECUTABLE_NAME"
-if [[ ! -x "$BIN_PATH" ]]; then
-  echo "Release binary not found: $BIN_PATH" >&2
+log "Creating staged app bundle"
+/usr/bin/ditto --norsrc "$SOURCE_APP" "$APP_STAGE"
+xattr -cr "$APP_STAGE" 2>/dev/null || true
+
+stage_override_resource "$ICON_PATH" "AppIcon.icns"
+stage_override_resource "$MENUBAR_ICON_PATH" "MenuBarIcon.png"
+stage_override_resource "$MENUBAR_CONTROL_ICON_PATH" "MenuBarControl.png"
+
+xattr -cr "$APP_STAGE" 2>/dev/null || true
+
+if [[ -d "$APP_STAGE/Contents/PlugIns/TransOnControlsExtension.appex" ]]; then
+  sign_extension_if_needed "$APP_STAGE/Contents/PlugIns/TransOnControlsExtension.appex"
+else
+  echo "Embedded control extension not found in staged app." >&2
   exit 1
 fi
 
-ICON_PATH=""
-if ICON_PATH="$(pick_icon_source)"; then
-  log "Using icon: $ICON_PATH"
-else
-  log "Icon not found; app will be built without custom icon"
-fi
-
-MENUBAR_ICON_PATH=""
-if MENUBAR_ICON_PATH="$(pick_menubar_icon_source)"; then
-  log "Using menu bar icon: $MENUBAR_ICON_PATH"
-else
-  log "Menu bar icon not found; app will use built-in fallback rendering"
-fi
-
-rm -rf "$APP_STAGE"
-mkdir -p "$APP_STAGE/Contents/MacOS" "$APP_STAGE/Contents/Resources"
-cp "$BIN_PATH" "$APP_STAGE/Contents/MacOS/${EXECUTABLE_NAME}"
-chmod +x "$APP_STAGE/Contents/MacOS/${EXECUTABLE_NAME}"
-
-if [[ -f "$PROJECT_DIR/translator_engine.py" ]]; then
-  /usr/bin/ditto --norsrc "$PROJECT_DIR/translator_engine.py" "$APP_STAGE/Contents/Resources/translator_engine.py"
-  chmod 644 "$APP_STAGE/Contents/Resources/translator_engine.py"
-else
-  log "translator_engine.py not found in project root; offline NLLB mode in app may be unavailable"
-fi
-
-if [[ -f "$PROJECT_DIR/scripts/setup_offline_translators.sh" ]]; then
-  /usr/bin/ditto --norsrc "$PROJECT_DIR/scripts/setup_offline_translators.sh" "$APP_STAGE/Contents/Resources/setup_offline_translators.sh"
-  chmod 755 "$APP_STAGE/Contents/Resources/setup_offline_translators.sh"
-else
-  log "setup_offline_translators.sh not found; NLLB update action in app may be unavailable"
-fi
-
-if [[ -n "$ICON_PATH" ]]; then
-  /usr/bin/ditto --norsrc "$ICON_PATH" "$APP_STAGE/Contents/Resources/AppIcon.icns"
-  xattr -c "$APP_STAGE/Contents/Resources/AppIcon.icns" 2>/dev/null || true
-  ICON_PLIST_BLOCK=$'  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>'
-else
-  ICON_PLIST_BLOCK=""
-fi
-
-if [[ -n "$MENUBAR_ICON_PATH" ]]; then
-  /usr/bin/ditto --norsrc "$MENUBAR_ICON_PATH" "$APP_STAGE/Contents/Resources/MenuBarIcon.png"
-  xattr -c "$APP_STAGE/Contents/Resources/MenuBarIcon.png" 2>/dev/null || true
-fi
-
-cat > "$APP_STAGE/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>${APP_DISPLAY_NAME}</string>
-  <key>CFBundleExecutable</key>
-  <string>${EXECUTABLE_NAME}</string>
-${ICON_PLIST_BLOCK}
-  <key>CFBundleIdentifier</key>
-  <string>${BUNDLE_ID}</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>${APP_DISPLAY_NAME}</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${APP_VERSION}</string>
-  <key>CFBundleVersion</key>
-  <string>${APP_BUILD}</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-
-xattr -c "$APP_STAGE" 2>/dev/null || true
-xattr -cr "$APP_STAGE" 2>/dev/null || true
-sign_bundle_if_needed "$APP_STAGE"
+sign_app_if_needed "$APP_STAGE"
 
 mkdir -p "$(dirname "$APP_DIR")"
 rm -rf "$APP_DIR"
 /usr/bin/ditto --norsrc "$APP_STAGE" "$APP_DIR"
+xattr -cr "$APP_DIR" 2>/dev/null || true
 
 rm -rf "$INSTALL_DIR"
 /usr/bin/ditto --norsrc "$APP_STAGE" "$INSTALL_DIR"
 if [[ "$LEGACY_INSTALL_DIR" != "$INSTALL_DIR" ]]; then
   rm -rf "$LEGACY_INSTALL_DIR"
 fi
+xattr -cr "$INSTALL_DIR" 2>/dev/null || true
 
-xattr -cr "$INSTALL_DIR" || true
-sign_bundle_if_needed "$INSTALL_DIR"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -f -R -trusted "$INSTALL_DIR" >/dev/null 2>&1 || true
+fi
+
+INSTALLED_APPEX="$INSTALL_DIR/Contents/PlugIns/TransOnControlsExtension.appex"
+if [[ -d "$INSTALLED_APPEX" ]]; then
+  pluginkit -a "$INSTALLED_APPEX" >/dev/null 2>&1 || true
+fi
+
+codesign --verify --deep --strict "$INSTALL_DIR"
 
 log "Built: $APP_DIR"
 log "Installed: $INSTALL_DIR"

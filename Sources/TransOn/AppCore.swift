@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Security
 import ServiceManagement
 import SwiftUI
+import WidgetKit
 
 struct HotKeyChoice {
     let title: String
@@ -52,6 +53,10 @@ enum TranslationEngine: String, CaseIterable, Identifiable {
             return "Google Web (gtx)"
         }
     }
+}
+
+private enum MenuBarConstants {
+    static let glyph = "Я"
 }
 
 final class KeychainStore {
@@ -126,29 +131,26 @@ final class AppSettings {
     static let hotKeyModifiersDefaultsKey = "hotKeyModifiers"
     static let fontSizeDefaultsKey = "fontSize"
     static let launchAtLoginDefaultsKey = "launchAtLogin"
+    static let menuBarDisplayModeDefaultsKey = "menuBarDisplayMode"
 
     private let defaults = UserDefaults.standard
-    private let keychain = KeychainStore(service: "com.grigorym.SelectedTextOverlay")
+    private let keychain = KeychainStore(service: TransOnControlConstants.appBundleIdentifier)
     private let hotKeyCodeKey = AppSettings.hotKeyCodeDefaultsKey
     private let hotKeyModifiersKey = AppSettings.hotKeyModifiersDefaultsKey
     private let fontSizeKey = AppSettings.fontSizeDefaultsKey
     private let launchAtLoginKey = AppSettings.launchAtLoginDefaultsKey
+    private let menuBarDisplayModeKey = AppSettings.menuBarDisplayModeDefaultsKey
     private let translationEngineKey = "translationEngine"
     private let legacyGoogleCloudApiKeyKey = "googleCloudApiKey"
     private let googleCloudApiKeyAccount = "googleCloudApiKey"
-    private let argosDirectHeRuInstalledKey = "argosDirectHeRuInstalled"
-    private let argosLastPackageCheckAtKey = "argosLastPackageCheckAt"
-    private let argosLastPackageCheckSummaryKey = "argosLastPackageCheckSummary"
-
     private(set) var hotKeyCode: UInt32
     private(set) var hotKeyModifiers: UInt32
     private(set) var fontSize: CGFloat
     private(set) var launchAtLogin: Bool
+    private(set) var menuBarDisplayModeRaw: String
+    private(set) var controlCenterIconRaw: String
     private(set) var translationEngineRaw: String
     private(set) var googleCloudApiKey: String
-    private(set) var argosDirectHeRuInstalled: Bool
-    private(set) var argosLastPackageCheckAt: Date?
-    private(set) var argosLastPackageCheckSummary: String
 
     private init() {
         let defaultCode = UInt32(kVK_ANSI_L)
@@ -162,6 +164,11 @@ final class AppSettings {
         hotKeyModifiers = UInt32(storedModifiers ?? Int(defaultModifiers))
         fontSize = CGFloat(storedFont ?? 22)
         launchAtLogin = defaults.bool(forKey: launchAtLoginKey)
+        let storedMenuBarDisplayMode = defaults.string(forKey: menuBarDisplayModeKey)
+        menuBarDisplayModeRaw = Self.normalizeMenuBarDisplayMode(storedMenuBarDisplayMode)
+        defaults.set(menuBarDisplayModeRaw, forKey: menuBarDisplayModeKey)
+        TransOnSharedDefaults.shared.setMenuBarDisplayModeRaw(menuBarDisplayModeRaw)
+        controlCenterIconRaw = TransOnSharedDefaults.shared.controlCenterIcon.rawValue
         let migrated: String
         if let storedEngine = defaults.string(forKey: translationEngineKey), !storedEngine.isEmpty {
             migrated = storedEngine
@@ -177,13 +184,6 @@ final class AppSettings {
             migrated = TranslationEngine.googleWeb.rawValue
         }
         translationEngineRaw = migrated
-        argosDirectHeRuInstalled = defaults.bool(forKey: argosDirectHeRuInstalledKey)
-        if let timestamp = defaults.object(forKey: argosLastPackageCheckAtKey) as? TimeInterval {
-            argosLastPackageCheckAt = Date(timeIntervalSince1970: timestamp)
-        } else {
-            argosLastPackageCheckAt = nil
-        }
-        argosLastPackageCheckSummary = defaults.string(forKey: argosLastPackageCheckSummaryKey) ?? ""
         let keychainValue = keychain.read(account: googleCloudApiKeyAccount)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !keychainValue.isEmpty {
@@ -197,6 +197,7 @@ final class AppSettings {
             }
             googleCloudApiKey = legacy
         }
+
     }
 
     func setHotKey(code: UInt32, modifiers: UInt32) {
@@ -215,6 +216,56 @@ final class AppSettings {
     func setLaunchAtLogin(_ newValue: Bool) {
         launchAtLogin = newValue
         defaults.set(newValue, forKey: launchAtLoginKey)
+    }
+
+    var menuBarDisplayMode: MenuBarDisplayMode {
+        get {
+            let stored = defaults.string(forKey: menuBarDisplayModeKey)
+            let normalized = Self.normalizeMenuBarDisplayMode(stored ?? menuBarDisplayModeRaw)
+            if normalized != stored {
+                defaults.set(normalized, forKey: menuBarDisplayModeKey)
+            }
+            menuBarDisplayModeRaw = normalized
+            return MenuBarDisplayMode(rawValue: normalized) ?? .on
+        }
+        set { setMenuBarDisplayMode(newValue) }
+    }
+
+    func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode) {
+        menuBarDisplayModeRaw = mode.rawValue
+        defaults.set(mode.rawValue, forKey: menuBarDisplayModeKey)
+        TransOnSharedDefaults.shared.setMenuBarDisplayModeRaw(mode.rawValue)
+    }
+
+    var controlCenterIcon: ControlCenterIconOption {
+        get {
+            let icon = TransOnSharedDefaults.shared.controlCenterIcon
+            controlCenterIconRaw = icon.rawValue
+            return icon
+        }
+        set { setControlCenterIcon(newValue) }
+    }
+
+    func setControlCenterIcon(_ icon: ControlCenterIconOption) {
+        controlCenterIconRaw = icon.rawValue
+        TransOnSharedDefaults.shared.setControlCenterIcon(icon)
+    }
+
+    private static func normalizeMenuBarDisplayMode(_ storedValue: String?) -> String {
+        guard let storedValue else {
+            return MenuBarDisplayMode.on.rawValue
+        }
+
+        if let mode = MenuBarDisplayMode(rawValue: storedValue) {
+            return mode.rawValue
+        }
+
+        switch storedValue {
+        case "Menubar", "MenubarControl", "Menubar и MenubarControl":
+            return MenuBarDisplayMode.on.rawValue
+        default:
+            return MenuBarDisplayMode.on.rawValue
+        }
     }
 
     var translationEngine: TranslationEngine {
@@ -242,21 +293,6 @@ final class AppSettings {
         if !saved {
             NSLog("Failed to save Google Cloud API key to Keychain.")
         }
-    }
-
-    func updateArgosPackageStatus(directHeRuInstalled: Bool?, summary: String) {
-        if let directHeRuInstalled {
-            argosDirectHeRuInstalled = directHeRuInstalled
-            defaults.set(directHeRuInstalled, forKey: argosDirectHeRuInstalledKey)
-        }
-
-        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        argosLastPackageCheckSummary = trimmedSummary
-        defaults.set(trimmedSummary, forKey: argosLastPackageCheckSummaryKey)
-
-        let now = Date()
-        argosLastPackageCheckAt = now
-        defaults.set(now.timeIntervalSince1970, forKey: argosLastPackageCheckAtKey)
     }
 
 }
@@ -595,39 +631,9 @@ final class TranslationService {
         case separator(String)
     }
 
-    struct ArgosPackageSyncResult {
-        let success: Bool
-        let directHeRuInstalled: Bool?
-        let summary: String
-    }
-
-    struct NLLBUpdateResult {
-        let success: Bool
-        let summary: String
-    }
-
-    struct ModelMaintenanceResult {
-        let success: Bool
-        let summary: String
-    }
-
-    private struct ArgosPackageSyncPayload {
-        let ok: Bool
-        let directAfter: Bool
-        let directAvailableCount: Int
-        let installedNow: Bool
-        let updatedPairs: [String]
-        let warnings: [String]
-        let fatalError: String
-    }
-
     private let settings: AppSettings
     private let session: URLSession
     private let workerQueue = DispatchQueue(label: "transon.translation.worker", qos: .userInitiated)
-    private let maintenanceQueue = DispatchQueue(label: "transon.translation.maintenance", qos: .utility)
-    private let argosCliPath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate/bin/argos-translate"
-    private let argosBasePath = "\(NSHomeDirectory())/Library/Application Support/ArgosTranslate"
-    private let offlineTranslatorsRoot = "\(NSHomeDirectory())/Library/Application Support/OfflineTranslators"
     private let maxChunkChars = 1800
     private let maxBatchParagraphs = 6
     private let maxRetries = 3
@@ -639,369 +645,6 @@ final class TranslationService {
         config.timeoutIntervalForResource = 20
         config.waitsForConnectivity = true
         session = URLSession(configuration: config)
-    }
-
-    func checkAndUpdateArgosPackages(completion: @escaping (ArgosPackageSyncResult) -> Void) {
-        maintenanceQueue.async {
-            guard FileManager.default.isExecutableFile(atPath: self.argosCliPath) else {
-                DispatchQueue.main.async {
-                    completion(
-                        ArgosPackageSyncResult(
-                            success: false,
-                            directHeRuInstalled: nil,
-                            summary: "Argos CLI не найден или не исполняемый: \(self.argosCliPath)"
-                        )
-                    )
-                }
-                return
-            }
-
-            let pythonPath = "/usr/bin/python3"
-            guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
-                DispatchQueue.main.async {
-                    completion(
-                        ArgosPackageSyncResult(
-                            success: false,
-                            directHeRuInstalled: nil,
-                            summary: "Не найден интерпретатор Python: \(pythonPath)"
-                        )
-                    )
-                }
-                return
-            }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: pythonPath)
-            process.arguments = ["-c", Self.argosPackageSyncPythonScript]
-
-            var env = ProcessInfo.processInfo.environment
-            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
-            let pythonLibPath = "\(self.argosBasePath)/python_lib"
-            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
-                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
-            } else {
-                env["PYTHONPATH"] = pythonLibPath
-            }
-            process.environment = env
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                DispatchQueue.main.async {
-                    completion(
-                        ArgosPackageSyncResult(
-                            success: false,
-                            directHeRuInstalled: nil,
-                            summary: "Не удалось запустить проверку Argos: \(error.localizedDescription)"
-                        )
-                    )
-                }
-                return
-            }
-
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outputText = String(data: outputData, encoding: .utf8) ?? ""
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-
-            guard process.terminationStatus == 0 else {
-                let trimmedError = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-                DispatchQueue.main.async {
-                    completion(
-                        ArgosPackageSyncResult(
-                            success: false,
-                            directHeRuInstalled: nil,
-                            summary: "Проверка Argos завершилась с кодом \(process.terminationStatus).\n\(trimmedError.prefix(300))"
-                        )
-                    )
-                }
-                return
-            }
-
-            guard let payload = Self.parseArgosPackageSyncPayload(from: outputText) else {
-                let trimmedOutput = outputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                DispatchQueue.main.async {
-                    completion(
-                        ArgosPackageSyncResult(
-                            success: false,
-                            directHeRuInstalled: nil,
-                            summary: "Не удалось разобрать ответ Argos.\n\(trimmedOutput.prefix(300))"
-                        )
-                    )
-                }
-                return
-            }
-
-            let summary = Self.makeArgosPackageSyncSummary(from: payload, stderr: errorText)
-            let result = ArgosPackageSyncResult(
-                success: payload.ok,
-                directHeRuInstalled: payload.ok ? payload.directAfter : nil,
-                summary: summary
-            )
-
-            DispatchQueue.main.async {
-                completion(result)
-            }
-        }
-    }
-
-    func checkAndUpdateNLLB(completion: @escaping (NLLBUpdateResult) -> Void) {
-        maintenanceQueue.async {
-            guard let scriptPath = self.resolveNLLBSetupScriptPath() else {
-                DispatchQueue.main.async {
-                    completion(
-                        NLLBUpdateResult(
-                            success: false,
-                            summary: "Не найден setup-скрипт NLLB (setup_offline_translators.sh)."
-                        )
-                    )
-                }
-                return
-            }
-
-            guard let pythonPath = self.resolveOfflineTranslatorPythonPath() else {
-                DispatchQueue.main.async {
-                    completion(
-                        NLLBUpdateResult(
-                            success: false,
-                            summary: "Не найден Python для NLLB setup."
-                        )
-                    )
-                }
-                return
-            }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = [scriptPath]
-
-            var env = ProcessInfo.processInfo.environment
-            env["PYTHON_BIN"] = pythonPath
-            env["HF_HUB_DISABLE_TELEMETRY"] = "1"
-            env["DO_NOT_TRACK"] = "1"
-            process.environment = env
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                DispatchQueue.main.async {
-                    completion(
-                        NLLBUpdateResult(
-                            success: false,
-                            summary: "Не удалось запустить обновление NLLB: \(error.localizedDescription)"
-                        )
-                    )
-                }
-                return
-            }
-
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outputText = String(data: outputData, encoding: .utf8) ?? ""
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-
-            let stdoutTail = outputText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n")
-                .suffix(6)
-                .joined(separator: "\n")
-            let stderrTail = errorText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n")
-                .suffix(4)
-                .joined(separator: "\n")
-
-            let success = process.terminationStatus == 0
-            var summary = success ? "Проверка/обновление NLLB завершено." : "Ошибка проверки/обновления NLLB (код \(process.terminationStatus))."
-            if !stdoutTail.isEmpty {
-                summary += "\n\n\(stdoutTail)"
-            }
-            if !stderrTail.isEmpty {
-                summary += "\n\nstderr:\n\(stderrTail)"
-            }
-
-            DispatchQueue.main.async {
-                completion(NLLBUpdateResult(success: success, summary: summary))
-            }
-        }
-    }
-
-    func removeNLLBModel(completion: @escaping (ModelMaintenanceResult) -> Void) {
-        maintenanceQueue.async {
-            let env = ProcessInfo.processInfo.environment
-            let nllbPath = env["NLLB_MODEL_DIR"] ?? "\(self.offlineTranslatorsRoot)/nllb"
-            let fm = FileManager.default
-
-            guard fm.fileExists(atPath: nllbPath) else {
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: true, summary: "NLLB модель уже отсутствует: \(nllbPath)"))
-                }
-                return
-            }
-
-            do {
-                try fm.removeItem(atPath: nllbPath)
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: true, summary: "NLLB модель удалена: \(nllbPath)"))
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    completion(
-                        ModelMaintenanceResult(
-                            success: false,
-                            summary: "Не удалось удалить NLLB модель: \(error.localizedDescription)"
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    func removeArgosPackages(completion: @escaping (ModelMaintenanceResult) -> Void) {
-        maintenanceQueue.async {
-            let env = ProcessInfo.processInfo.environment
-            let packagesPath = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
-            let fm = FileManager.default
-
-            guard fm.fileExists(atPath: packagesPath) else {
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: true, summary: "Папка пакетов Argos не найдена: \(packagesPath)"))
-                }
-                return
-            }
-
-            do {
-                let entries = try fm.contentsOfDirectory(atPath: packagesPath)
-                for entry in entries {
-                    let fullPath = (packagesPath as NSString).appendingPathComponent(entry)
-                    try fm.removeItem(atPath: fullPath)
-                }
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: true, summary: "Пакеты Argos удалены из: \(packagesPath)"))
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    completion(
-                        ModelMaintenanceResult(
-                            success: false,
-                            summary: "Не удалось удалить пакеты Argos: \(error.localizedDescription)"
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    func installArgosLanguagePair(from fromCode: String, to toCode: String, completion: @escaping (ModelMaintenanceResult) -> Void) {
-        maintenanceQueue.async {
-            let normalizedFrom = fromCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let normalizedTo = toCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !normalizedFrom.isEmpty, !normalizedTo.isEmpty else {
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: false, summary: "Коды языков не должны быть пустыми."))
-                }
-                return
-            }
-
-            let pythonPath = "/usr/bin/python3"
-            guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: false, summary: "Не найден Python: \(pythonPath)"))
-                }
-                return
-            }
-
-            let script = #"""
-import json
-import re
-import sys
-
-from_code = sys.argv[1]
-to_code = sys.argv[2]
-result = {"ok": False, "summary": ""}
-
-def version_tuple(value):
-    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))]
-    return tuple(parts) if parts else (0,)
-
-try:
-    import argostranslate.package as package
-    package.update_package_index()
-    available = package.get_available_packages()
-    candidates = [p for p in available if getattr(p, "from_code", "") == from_code and getattr(p, "to_code", "") == to_code]
-    if not candidates:
-        result["summary"] = f"Пара {from_code}->{to_code} не найдена в индексе Argos."
-    else:
-        best = sorted(candidates, key=lambda p: version_tuple(getattr(p, "version", "0")), reverse=True)[0]
-        path = best.download()
-        package.install_from_path(path)
-        result["ok"] = True
-        result["summary"] = f"Установлена пара {from_code}->{to_code} (version {getattr(best, 'version', 'unknown')})."
-except Exception as exc:
-    result["summary"] = f"Ошибка установки {from_code}->{to_code}: {exc}"
-
-print(json.dumps(result, ensure_ascii=False))
-"""#
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: pythonPath)
-            process.arguments = ["-c", script, normalizedFrom, normalizedTo]
-
-            var env = ProcessInfo.processInfo.environment
-            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
-            let pythonLibPath = "\(self.argosBasePath)/python_lib"
-            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
-                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
-            } else {
-                env["PYTHONPATH"] = pythonLibPath
-            }
-            process.environment = env
-
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            process.standardOutput = outPipe
-            process.standardError = errPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: false, summary: "Не удалось запустить установку Argos пары: \(error.localizedDescription)"))
-                }
-                return
-            }
-
-            let outText = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let errText = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-            if let data = outText.data(using: .utf8),
-               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                let ok = root["ok"] as? Bool ?? false
-                let summary = (root["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Операция завершена."
-                DispatchQueue.main.async {
-                    completion(ModelMaintenanceResult(success: ok, summary: summary))
-                }
-                return
-            }
-
-            let fallbackSummary = "Не удалось разобрать ответ установки Argos.\n\(errText.prefix(300))"
-            DispatchQueue.main.async {
-                completion(ModelMaintenanceResult(success: false, summary: fallbackSummary))
-            }
-        }
     }
 
     func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
@@ -1339,184 +982,6 @@ print(json.dumps(result, ensure_ascii=False))
         }
     }
 
-    private func requestUnifiedOfflineBatchTranslation(
-        for paragraphs: [String],
-        mode: String,
-        completion: @escaping ([String]?) -> Void
-    ) {
-        requestUnifiedOfflineBatchTranslation(paragraphs, mode: mode, at: 0, translated: [], completion: completion)
-    }
-
-    private func requestUnifiedOfflineBatchTranslation(
-        _ paragraphs: [String],
-        mode: String,
-        at index: Int,
-        translated: [String],
-        completion: @escaping ([String]?) -> Void
-    ) {
-        guard index < paragraphs.count else {
-            completion(translated)
-            return
-        }
-
-        requestUnifiedOfflineTranslation(for: paragraphs[index], mode: mode) { [weak self] item in
-            guard let self else {
-                completion(nil)
-                return
-            }
-            guard let item else {
-                completion(nil)
-                return
-            }
-            self.requestUnifiedOfflineBatchTranslation(
-                paragraphs,
-                mode: mode,
-                at: index + 1,
-                translated: translated + [item],
-                completion: completion
-            )
-        }
-    }
-
-    private func requestUnifiedOfflineTranslation(
-        for text: String,
-        mode: String,
-        completion: @escaping (String?) -> Void
-    ) {
-        workerQueue.async {
-            guard let scriptPath = self.resolveOfflineTranslatorScriptPath() else {
-                NSLog("Offline translator script not found (translator_engine.py).")
-                completion(nil)
-                return
-            }
-
-            guard let pythonPath = self.resolveOfflineTranslatorPythonPath() else {
-                NSLog("Python runtime for offline translator not found.")
-                completion(nil)
-                return
-            }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: pythonPath)
-            process.arguments = [scriptPath, text, "--from", "auto", "--to", "ru", "--mode", mode]
-
-            var env = ProcessInfo.processInfo.environment
-            env["HF_HUB_DISABLE_TELEMETRY"] = "1"
-            env["DO_NOT_TRACK"] = "1"
-            env["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-            process.environment = env
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                NSLog("Offline translator process start failed: \(error.localizedDescription)")
-                completion(nil)
-                return
-            }
-
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outputText = String(data: outputData, encoding: .utf8) ?? ""
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-
-            guard process.terminationStatus == 0 else {
-                let stderr = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let stdout = outputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                NSLog("Offline translator failed (\(process.terminationStatus)). stderr=\(stderr.prefix(240)) stdout=\(stdout.prefix(240))")
-                completion(nil)
-                return
-            }
-
-            guard let translated = Self.parseUnifiedTranslatorOutput(outputText), !translated.isEmpty else {
-                let stderr = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-                NSLog("Offline translator output parse failed. stderr=\(stderr.prefix(240))")
-                completion(nil)
-                return
-            }
-
-            completion(translated)
-        }
-    }
-
-    private func resolveOfflineTranslatorScriptPath() -> String? {
-        if let explicit = ProcessInfo.processInfo.environment["OFFLINE_TRANSLATOR_ENGINE_PATH"],
-           FileManager.default.fileExists(atPath: explicit) {
-            return explicit
-        }
-
-        if let fromBundle = Bundle.main.url(forResource: "translator_engine", withExtension: "py")?.path,
-           FileManager.default.fileExists(atPath: fromBundle) {
-            return fromBundle
-        }
-
-        let cwdPath = FileManager.default.currentDirectoryPath + "/translator_engine.py"
-        if FileManager.default.fileExists(atPath: cwdPath) {
-            return cwdPath
-        }
-
-        return nil
-    }
-
-    private func resolveOfflineTranslatorPythonPath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        let home = NSHomeDirectory()
-        let offlineRoot = env["OFFLINE_TRANSLATORS_HOME"] ?? "\(home)/Library/Application Support/OfflineTranslators"
-        let defaultVenv = (env["OFFLINE_TRANSLATORS_VENV"] ?? "\(offlineRoot)/.venv")
-
-        let candidates = [
-            env["TRANSLATOR_PYTHON_BIN"],
-            "\(defaultVenv)/bin/python",
-            "/opt/homebrew/bin/python3.12",
-            "/usr/bin/python3"
-        ]
-
-        for candidate in candidates {
-            guard let path = candidate else { continue }
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
-    }
-
-    private func resolveNLLBSetupScriptPath() -> String? {
-        if let explicit = ProcessInfo.processInfo.environment["NLLB_SETUP_SCRIPT_PATH"],
-           FileManager.default.isExecutableFile(atPath: explicit) {
-            return explicit
-        }
-
-        if let fromBundle = Bundle.main.url(forResource: "setup_offline_translators", withExtension: "sh")?.path,
-           FileManager.default.isExecutableFile(atPath: fromBundle) {
-            return fromBundle
-        }
-
-        let cwdPath = FileManager.default.currentDirectoryPath + "/scripts/setup_offline_translators.sh"
-        if FileManager.default.isExecutableFile(atPath: cwdPath) {
-            return cwdPath
-        }
-
-        return nil
-    }
-
-    private static func parseUnifiedTranslatorOutput(_ output: String) -> String? {
-        let lines = output
-            .split(whereSeparator: \.isNewline)
-            .map { String($0) }
-
-        if let line = lines.reversed().first(where: { $0.hasPrefix("Result: ") }) {
-            return String(line.dropFirst("Result: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func requestWebGtxBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
         guard var components = URLComponents(string: "https://translate.googleapis.com/translate_a/single") else {
             completion(nil)
@@ -1628,92 +1093,6 @@ print(json.dumps(result, ensure_ascii=False))
         }.resume()
     }
 
-    private func requestArgosBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
-        requestArgosBatchTranslation(paragraphs, at: 0, translated: [], completion: completion)
-    }
-
-    private func requestArgosBatchTranslation(
-        _ paragraphs: [String],
-        at index: Int,
-        translated: [String],
-        completion: @escaping ([String]?) -> Void
-    ) {
-        guard index < paragraphs.count else {
-            completion(translated)
-            return
-        }
-
-        requestArgosTranslation(for: paragraphs[index]) { [weak self] item in
-            guard let self else {
-                completion(nil)
-                return
-            }
-
-            guard let item else {
-                completion(nil)
-                return
-            }
-
-            self.requestArgosBatchTranslation(paragraphs, at: index + 1, translated: translated + [item], completion: completion)
-        }
-    }
-
-    private func requestArgosTranslation(for text: String, completion: @escaping (String?) -> Void) {
-        guard FileManager.default.isExecutableFile(atPath: argosCliPath) else {
-            NSLog("Argos CLI not found or not executable at \(argosCliPath)")
-            completion(nil)
-            return
-        }
-
-        workerQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: self.argosCliPath)
-            process.arguments = ["--text", text, "--to", "ru"]
-
-            var env = ProcessInfo.processInfo.environment
-            env["ARGOS_PACKAGES_DIR"] = env["ARGOS_PACKAGES_DIR"] ?? "\(self.argosBasePath)/packages"
-            let pythonLibPath = "\(self.argosBasePath)/python_lib"
-            if let currentPythonPath = env["PYTHONPATH"], !currentPythonPath.isEmpty {
-                env["PYTHONPATH"] = "\(pythonLibPath):\(currentPythonPath)"
-            } else {
-                env["PYTHONPATH"] = pythonLibPath
-            }
-            process.environment = env
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                NSLog("Argos process failed to start: \(error.localizedDescription)")
-                completion(nil)
-                return
-            }
-
-            guard process.terminationStatus == 0 else {
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorText = String(data: errorData, encoding: .utf8) ?? ""
-                NSLog("Argos process failed with status \(process.terminationStatus): \(errorText.prefix(240))")
-                completion(nil)
-                return
-            }
-
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: outputData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty
-            else {
-                completion(nil)
-                return
-            }
-
-            completion(output)
-        }
-    }
-
     private func requestGoogleCloudBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
         guard let apiKey = googleCloudApiKey(), !apiKey.isEmpty else {
             NSLog("Google Cloud API key is missing. Set it in app menu or via GOOGLE_CLOUD_TRANSLATE_API_KEY / GOOGLE_API_KEY.")
@@ -1763,178 +1142,6 @@ print(json.dumps(result, ensure_ascii=False))
             completion(Self.parseGoogleCloudTranslatedTexts(from: data, expectedCount: paragraphs.count))
         }.resume()
     }
-
-    private static func parseArgosPackageSyncPayload(from output: String) -> ArgosPackageSyncPayload? {
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        let candidates = [trimmed] + trimmed.split(whereSeparator: \.isNewline).map(String.init).reversed()
-        for candidate in candidates {
-            guard let data = candidate.data(using: .utf8) else {
-                continue
-            }
-            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                continue
-            }
-
-            let ok = root["ok"] as? Bool ?? false
-            let directAfter = root["direct_after"] as? Bool ?? false
-            let directAvailableCount = root["direct_available_count"] as? Int ?? 0
-            let installedNow = root["installed_now"] as? Bool ?? false
-            let updatedPairs = root["updated_pairs"] as? [String] ?? []
-            let warnings = root["warnings"] as? [String] ?? []
-            let fatalError = root["fatal_error"] as? String ?? ""
-            return ArgosPackageSyncPayload(
-                ok: ok,
-                directAfter: directAfter,
-                directAvailableCount: directAvailableCount,
-                installedNow: installedNow,
-                updatedPairs: updatedPairs,
-                warnings: warnings,
-                fatalError: fatalError
-            )
-        }
-
-        return nil
-    }
-
-    private static func makeArgosPackageSyncSummary(from payload: ArgosPackageSyncPayload, stderr: String) -> String {
-        var lines: [String] = []
-
-        if !payload.ok {
-            lines.append("Не удалось обновить пакеты Argos.")
-            if !payload.fatalError.isEmpty {
-                lines.append(payload.fatalError)
-            }
-            let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedStderr.isEmpty {
-                lines.append("Лог: \(trimmedStderr.prefix(300))")
-            }
-            return lines.joined(separator: "\n")
-        }
-
-        if payload.updatedPairs.isEmpty {
-            lines.append("Обновлений для установленных пакетов не найдено.")
-        } else {
-            lines.append("Обновлены пакеты: \(payload.updatedPairs.joined(separator: ", ")).")
-        }
-
-        if payload.directAfter {
-            lines.append(payload.installedNow ? "Пакет he->ru найден и установлен." : "Пакет he->ru уже установлен.")
-        } else if payload.directAvailableCount > 0 {
-            lines.append("Пакет he->ru есть в индексе, но установить его не удалось.")
-        } else {
-            lines.append("Пакет he->ru пока отсутствует в индексе Argos.")
-        }
-
-        if !payload.warnings.isEmpty {
-            lines.append("Предупреждения: \(payload.warnings.joined(separator: " | "))")
-        }
-
-        return lines.joined(separator: "\n")
-    }
-
-    private static let argosPackageSyncPythonScript = #"""
-import json
-import os
-import re
-
-result = {
-    "ok": False,
-    "direct_before": False,
-    "direct_after": False,
-    "direct_available_count": 0,
-    "installed_now": False,
-    "updated_pairs": [],
-    "warnings": [],
-    "fatal_error": "",
-}
-
-def version_tuple(value):
-    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))]
-    return tuple(parts) if parts else (0,)
-
-def best_package(packages):
-    return sorted(packages, key=lambda p: version_tuple(getattr(p, "version", "0")), reverse=True)[0]
-
-def has_direct(packages):
-    for pkg in packages:
-        if getattr(pkg, "from_code", "") == "he" and getattr(pkg, "to_code", "") == "ru":
-            return True
-    return False
-
-try:
-    import argostranslate.package as package
-except Exception as exc:
-    result["fatal_error"] = f"Import error: {exc}"
-    print(json.dumps(result, ensure_ascii=False))
-    raise SystemExit(0)
-
-packages_dir = os.environ.get("ARGOS_PACKAGES_DIR", "")
-if packages_dir:
-    os.makedirs(packages_dir, exist_ok=True)
-
-try:
-    package.update_package_index()
-    available = package.get_available_packages()
-    installed = package.get_installed_packages()
-except Exception as exc:
-    result["fatal_error"] = f"Package index error: {exc}"
-    print(json.dumps(result, ensure_ascii=False))
-    raise SystemExit(0)
-
-result["direct_before"] = has_direct(installed)
-
-installed_by_pair = {}
-for pkg in installed:
-    pair = f"{getattr(pkg, 'from_code', '')}->{getattr(pkg, 'to_code', '')}"
-    current = installed_by_pair.get(pair)
-    if current is None or version_tuple(getattr(pkg, "version", "0")) > version_tuple(getattr(current, "version", "0")):
-        installed_by_pair[pair] = pkg
-
-for pair, current_pkg in installed_by_pair.items():
-    candidates = [
-        pkg for pkg in available
-        if getattr(pkg, "from_code", "") == getattr(current_pkg, "from_code", "")
-        and getattr(pkg, "to_code", "") == getattr(current_pkg, "to_code", "")
-    ]
-    if not candidates:
-        continue
-    latest = best_package(candidates)
-    current_version = str(getattr(current_pkg, "version", "0"))
-    latest_version = str(getattr(latest, "version", "0"))
-    if version_tuple(latest_version) > version_tuple(current_version):
-        try:
-            path = latest.download()
-            package.install_from_path(path)
-            result["updated_pairs"].append(f"{pair} {current_version}->{latest_version}")
-        except Exception as exc:
-            result["warnings"].append(f"Failed to update {pair}: {exc}")
-
-direct_candidates = [pkg for pkg in available if getattr(pkg, "from_code", "") == "he" and getattr(pkg, "to_code", "") == "ru"]
-result["direct_available_count"] = len(direct_candidates)
-
-if direct_candidates and not result["direct_before"]:
-    try:
-        latest_direct = best_package(direct_candidates)
-        path = latest_direct.download()
-        package.install_from_path(path)
-        result["installed_now"] = True
-    except Exception as exc:
-        result["warnings"].append(f"Failed to install he->ru: {exc}")
-
-try:
-    installed_after = package.get_installed_packages()
-    result["direct_after"] = has_direct(installed_after)
-except Exception as exc:
-    result["warnings"].append(f"Failed to verify installed packages: {exc}")
-    result["direct_after"] = result["direct_before"]
-
-result["ok"] = True
-print(json.dumps(result, ensure_ascii=False))
-"""#
 
     private static func parseBatchTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
         guard
@@ -2219,7 +1426,7 @@ final class LaunchAtLoginManager {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let settings = AppSettings.shared
+    private lazy var settings = AppSettings.shared
     private let overlay = OverlayController()
     private let selection = SelectionService()
     private lazy var translator = TranslationService(settings: settings)
@@ -2230,12 +1437,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var settingsViewModel: SettingsViewModel?
     private var fallbackSettingsWindowController: NSWindowController?
 
+    override init() {
+        TransOnMigration.performIfNeeded()
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupStatusItem()
+        rebuildStatusItem()
         overlay.setFontSize(settings.fontSize)
         NSApp.setActivationPolicy(.accessory)
+        TransOnControlReloader.reload()
         Task { @MainActor in
             self.bindSettingsViewModel(SettingsShared.viewModel)
+            if self.settings.menuBarDisplayMode == .off {
+                self.scheduleSettingsWindowOnLaunch()
+            }
         }
 
         hotKey.onTrigger = { [weak self] in
@@ -2268,6 +1484,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        TransOnControlReloader.reload()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard settings.menuBarDisplayMode == .off else {
+            return false
+        }
+
+        Task { @MainActor in
+            self.openSettings()
+        }
+        return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let destination = TransOnControlURL.parse(url) else {
+                continue
+            }
+
+            Task { @MainActor in
+                self.handleLaunchDestination(destination)
+            }
+        }
+    }
+
     @MainActor
     func bindSettingsViewModel(_ viewModel: SettingsViewModel) {
         settingsViewModel = viewModel
@@ -2277,62 +1520,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.onFontSizeChanged = { [weak self] size in
             self?.overlay.setFontSize(size)
         }
-        viewModel.onCheckAndUpdateArgos = { [weak self] callback in
-            guard let self else {
-                callback(false, "AppDelegate недоступен")
-                return
-            }
-            self.translator.checkAndUpdateArgosPackages { result in
-                if result.success {
-                    self.settings.updateArgosPackageStatus(
-                        directHeRuInstalled: result.directHeRuInstalled,
-                        summary: result.summary
-                    )
-                }
-                callback(result.success, result.summary)
+        viewModel.onMenuBarDisplayModeChanged = { [weak self] mode in
+            self?.settings.setMenuBarDisplayMode(mode)
+            self?.rebuildStatusItem()
+            if mode == .off {
+                self?.scheduleSettingsWindowOnLaunch()
             }
         }
-        viewModel.onCheckAndUpdateNLLB = { [weak self] callback in
-            guard let self else {
-                callback(false, "AppDelegate недоступен")
-                return
-            }
-            self.translator.checkAndUpdateNLLB { result in
-                callback(result.success, result.summary)
-            }
+        viewModel.onControlCenterIconChanged = { icon in
+            AppSettings.shared.setControlCenterIcon(icon)
+            TransOnControlReloader.reload()
         }
-        viewModel.onRemoveArgosPackages = { [weak self] callback in
-            guard let self else {
-                callback(false, "AppDelegate недоступен")
-                return
-            }
-            self.translator.removeArgosPackages { result in
-                self.settings.updateArgosPackageStatus(directHeRuInstalled: false, summary: result.summary)
-                callback(result.success, result.summary)
-            }
-        }
-        viewModel.onRemoveNLLBModel = { [weak self] callback in
-            guard let self else {
-                callback(false, "AppDelegate недоступен")
-                return
-            }
-            self.translator.removeNLLBModel { result in
-                callback(result.success, result.summary)
-            }
-        }
-        viewModel.onInstallArgosPair = { [weak self] fromCode, toCode, callback in
-            guard let self else {
-                callback(false, "AppDelegate недоступен")
-                return
-            }
-            self.translator.installArgosLanguagePair(from: fromCode, to: toCode) { result in
-                if result.success {
-                    self.settings.updateArgosPackageStatus(directHeRuInstalled: nil, summary: result.summary)
-                }
-                callback(result.success, result.summary)
-            }
-        }
-        viewModel.refreshModelState()
     }
 
     @MainActor
@@ -2342,15 +1540,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    private func handleLaunchDestination(_ destination: TransOnLaunchDestination) {
+        switch destination {
+        case .activate:
+            NSApp.activate(ignoringOtherApps: true)
+            if settings.menuBarDisplayMode == .off {
+                showFallbackSettingsWindow()
+            }
+        case .settings:
+            openSettings()
+        }
+    }
+
+    @MainActor
+    private func scheduleSettingsWindowOnLaunch() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            self.showFallbackSettingsWindow()
+            self.fallbackSettingsWindowController?.window?.orderFrontRegardless()
+        }
+    }
+
+    @MainActor
     private func showFallbackSettingsWindow() {
         let viewModel = settingsViewModel ?? SettingsShared.viewModel
 
         if fallbackSettingsWindowController == nil {
-            let host = NSHostingController(rootView: SettingsView(viewModel: viewModel))
+            let host = NSHostingController(rootView: PreferencesView(viewModel: viewModel))
             let window = NSWindow(contentViewController: host)
-            window.title = "Настройки"
+            window.title = "Settings"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 560, height: 480))
+            window.setContentSize(NSSize(width: 720, height: 420))
             window.center()
             window.tabbingMode = .disallowed
             window.toolbarStyle = .preference
@@ -2419,13 +1640,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
-    private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private func loadMenuBarControlIconFromBundle() -> NSImage? {
+        guard
+            let url = Bundle.main.url(forResource: "MenuBarControl", withExtension: "png"),
+            let image = NSImage(contentsOf: url)
+        else {
+            return loadMenuBarIconFromBundle()
+        }
+
+        let targetHeight: CGFloat = 18
+        let originalHeight = max(image.size.height, 1)
+        let scale = targetHeight / originalHeight
+        image.size = NSSize(width: image.size.width * scale, height: targetHeight)
+        image.isTemplate = false
+        return image
+    }
+
+    private func rebuildStatusItem() {
+        guard settings.menuBarDisplayMode == .on else {
+            if let statusItem {
+                NSStatusBar.system.removeStatusItem(statusItem)
+                self.statusItem = nil
+            }
+            return
+        }
+
+        let item: NSStatusItem
+        if let statusItem {
+            item = statusItem
+        } else {
+            item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            statusItem = item
+        }
+
+        item.length = NSStatusItem.variableLength
+        applyStatusItemAppearance(item)
+    }
+
+    private func applyStatusItemAppearance(_ item: NSStatusItem) {
         if let button = item.button {
-            button.image = loadMenuBarIconFromBundle() ?? makeMenuBarBadgeImage()
-            button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
+            button.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
             button.title = ""
+            button.image = nil
+            button.image = loadMenuBarControlIconFromBundle() ?? makeMenuBarBadgeImage()
+            button.imagePosition = .imageOnly
         }
 
         let menu = NSMenu()
@@ -2434,7 +1693,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Выйти", action: #selector(quitApp), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
-
-        statusItem = item
     }
 }

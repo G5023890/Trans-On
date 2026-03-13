@@ -1,0 +1,83 @@
+name: TransOn
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.01
+    DEVELOPMENT_TEAM: 8FJN73UDTT
+targets:
+  TransOn:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/TransOn
+      - path: AppIcon.icns
+        buildPhase: resources
+      - path: MenuBarIcon.png
+        buildPhase: resources
+      - path: MenuBarControl.png
+        buildPhase: resources
+    info:
+      path: Config/TransOn-Info.plist
+      properties:
+        CFBundleDisplayName: Trans-On
+        CFBundleIconFile: AppIcon
+        CFBundleName: Trans-On
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: true
+        NSPrincipalClass: NSApplication
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.grigorym.TransOn
+            CFBundleURLSchemes:
+              - transon
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grigorym.TransOn
+        PRODUCT_NAME: Trans-On
+        EXECUTABLE_NAME: Trans-On
+        INFOPLIST_FILE: Config/TransOn-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/TransOn.entitlements
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 8FJN73UDTT
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: Config/TransOn.entitlements
+    dependencies:
+      - target: TransOnControlsExtension
+        embed: true
+        codeSign: true
+  TransOnControlsExtension:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources/TransOnControlsExtension
+      - path: Sources/TransOn/ControlCenterShared.swift
+    info:
+      path: Config/TransOnControlsExtension-Info.plist
+      properties:
+        CFBundleDisplayName: Trans-On
+        NSExtension:
+          NSExtensionAttributes:
+            WKAppBundleIdentifier: com.grigorym.TransOn
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Config/TransOnControlsExtension.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grigorym.TransOn.Controls
+        PRODUCT_NAME: TransOnControlsExtension
+        EXECUTABLE_NAME: TransOnControlsExtension
+        INFOPLIST_FILE: Config/TransOnControlsExtension-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/TransOnControlsExtension.entitlements
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 8FJN73UDTT
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ENABLE_APP_SANDBOX: YES
+        SKIP_INSTALL: YES

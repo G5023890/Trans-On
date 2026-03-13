@@ -25,63 +25,6 @@ Provider switch is available in:
 
 - `Menu bar icon -> Translation Method -> Google Web (gtx)` (unofficial endpoint)
 - `Menu bar icon -> Translation Method -> Google Cloud API` (official API)
-- `Menu bar icon -> Translation Method -> Argos (offline)` (local translation via installed Argos CLI)
-
-## Unified offline translator (Argos + NLLB)
-
-Project now includes a local unified translator module:
-
-- `translator_engine.py`
-- `translate` (CLI wrapper)
-
-Supported languages in this module: `he`, `en`, `ru`.
-
-Engine selection logic (`mode=auto`):
-
-- if source language is `he` -> `NLLB`
-- if text length is over `200` chars -> `NLLB`
-- otherwise -> `Argos`
-
-Mode override:
-
-- `auto` -> logic above
-- `fast` -> force `Argos`
-- `quality` -> force `NLLB`
-
-### Setup
-
-```bash
-./scripts/setup_offline_translators.sh
-```
-
-The script:
-
-- checks Python `3.11+`
-- creates virtual environment at `~/Library/Application Support/OfflineTranslators/.venv`
-- installs `ctranslate2`, `sentencepiece`, `transformers` into that virtual environment
-- prepares:
-  - `~/Library/Application Support/OfflineTranslators/argos`
-  - `~/Library/Application Support/OfflineTranslators/nllb`
-- downloads and converts `facebook/nllb-200-distilled-600M` to CTranslate2 `int8`
-
-To only install dependencies (without model download):
-
-```bash
-SKIP_MODEL_DOWNLOAD=1 ./scripts/setup_offline_translators.sh
-```
-
-### CLI examples
-
-```bash
-./translate "текст" --from he --to ru
-./translate "text" --from en --to ru --mode quality
-```
-
-CLI output includes:
-
-- selected engine
-- translation time
-- translation result
 
 ### Google Cloud API key
 
@@ -95,19 +38,13 @@ export GOOGLE_CLOUD_TRANSLATE_API_KEY="YOUR_API_KEY"
 export GOOGLE_API_KEY="YOUR_API_KEY"
 ```
 
-### Argos package update/check
-
-- Menu path: `Menu bar icon -> Translation Method -> Check/Update Argos packages…`
-- Updates Argos package index and checks updates for installed packages.
-- Checks whether a direct `he->ru` package is available.
-- If direct `he->ru` appears in the index, the app downloads and installs it automatically.
-- The `he->ru` availability state is saved in app settings.
-
 ## Run in development mode
 
 ```bash
-swift run
+open TransOn.xcodeproj
 ```
+
+For local installable builds with the embedded Control Center extension, use the build script below. The Swift package manifest remains in the repo for source organization, but the app is built as an Xcode project.
 
 ## Build and install
 
@@ -115,7 +52,7 @@ swift run
 ./scripts/build_and_install_app.sh
 ```
 
-The script builds and installs `/Applications/Trans-On.app`.
+The script generates the Xcode project, builds the app and embedded Control Center extension, signs them, and installs `/Applications/Trans-On.app`.
 
 Script behavior:
 
@@ -136,7 +73,6 @@ If hotkey capture or text selection capture does not work, check these permissio
 
 - `Google Web (gtx)` uses an unofficial endpoint and is not suitable for production.
 - `Google Cloud API` requires a valid API key and enabled billing in Google Cloud.
-- `Argos (offline)` requires installed CLI and language packages in `~/Library/Application Support/ArgosTranslate/packages`.
 
 ## License
 

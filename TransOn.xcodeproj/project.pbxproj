@@ -1,0 +1,500 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1FDC04AF8671909119ADC27B /* ControlCenterShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */; };
+		20A8F39CB4832C9AAB496950 /* TransOnControlsExtensionBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00F7B3A4EA1A5BC8DA0A768 /* TransOnControlsExtensionBundle.swift */; };
+		2632AAFAF4CA1006BD8D04E4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5573653CB72CCE00D6A478AF /* SettingsView.swift */; };
+		2AF190ADC6AFAC20EC81A4B8 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = F379C31424C9A200360B4E21 /* AppIcon.icns */; };
+		305A0F808DF2D0FACEED4F84 /* TransOnControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149B759D6A53DAA4881DB6A7 /* TransOnControlWidget.swift */; };
+		4931BF24AF08F300BB4D4A2A /* MenuBarControl.png in Resources */ = {isa = PBXBuildFile; fileRef = 5041587DC6A0C6AF64830880 /* MenuBarControl.png */; };
+		5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */; };
+		A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */; };
+		A73A24DB660D33625D2E7233 /* TransOnControlsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A758C1EB52B011FD722DB1A9 /* TranslationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34DCFDD8418DEC47CF626DE0 /* TranslationSettingsView.swift */; };
+		B85D72EBB4C9C4A57AD9E8C2 /* AppCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22895236042B23066CF05C22 /* AppCore.swift */; };
+		C3D4E795D0E4C0C547AB1055 /* MenuBarIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = AB7E29D42AA195B0BC08D1A2 /* MenuBarIcon.png */; };
+		E8760771FA247744815D20CE /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190F6A95A118CA1782B809A3 /* PreferencesView.swift */; };
+		ECC435F6BD0A16D04F9EBB43 /* ControlCenterShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		20F87A281FE87BF3E812A185 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 51DF69E3262AD5E523D94C37 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 62E8A3B9599DF69D703A1A8D;
+			remoteInfo = TransOnControlsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E6CD92DD60FCBDB17E373F27 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A73A24DB660D33625D2E7233 /* TransOnControlsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		149B759D6A53DAA4881DB6A7 /* TransOnControlWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransOnControlWidget.swift; sourceTree = "<group>"; };
+		190F6A95A118CA1782B809A3 /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
+		22895236042B23066CF05C22 /* AppCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCore.swift; sourceTree = "<group>"; };
+		34DCFDD8418DEC47CF626DE0 /* TranslationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationSettingsView.swift; sourceTree = "<group>"; };
+		4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
+		5041587DC6A0C6AF64830880 /* MenuBarControl.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarControl.png; sourceTree = "<group>"; };
+		5573653CB72CCE00D6A478AF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsView.swift; sourceTree = "<group>"; };
+		AB7E29D42AA195B0BC08D1A2 /* MenuBarIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
+		AFF6FDCA4D3F4B9D33D1D5D4 /* TransOn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TransOn.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterShared.swift; sourceTree = "<group>"; };
+		B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TransOnControlsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D00F7B3A4EA1A5BC8DA0A768 /* TransOnControlsExtensionBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransOnControlsExtensionBundle.swift; sourceTree = "<group>"; };
+		F379C31424C9A200360B4E21 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		577DD5C0C5EC90E9A182BDE9 /* TransOn */ = {
+			isa = PBXGroup;
+			children = (
+				22895236042B23066CF05C22 /* AppCore.swift */,
+				B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */,
+				4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */,
+				190F6A95A118CA1782B809A3 /* PreferencesView.swift */,
+				6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */,
+				5573653CB72CCE00D6A478AF /* SettingsView.swift */,
+				34DCFDD8418DEC47CF626DE0 /* TranslationSettingsView.swift */,
+			);
+			path = TransOn;
+			sourceTree = "<group>";
+		};
+		7393AE36EA5FC94DF1CF2A17 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AFF6FDCA4D3F4B9D33D1D5D4 /* TransOn.app */,
+				B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A1618EE1B3441DFDC5306B64 = {
+			isa = PBXGroup;
+			children = (
+				F379C31424C9A200360B4E21 /* AppIcon.icns */,
+				5041587DC6A0C6AF64830880 /* MenuBarControl.png */,
+				AB7E29D42AA195B0BC08D1A2 /* MenuBarIcon.png */,
+				BE18570C087517FD3B7B9001 /* Sources */,
+				7393AE36EA5FC94DF1CF2A17 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BE18570C087517FD3B7B9001 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				577DD5C0C5EC90E9A182BDE9 /* TransOn */,
+				F122D9E3F15D71BCDCE26ADC /* TransOnControlsExtension */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		F122D9E3F15D71BCDCE26ADC /* TransOnControlsExtension */ = {
+			isa = PBXGroup;
+			children = (
+				D00F7B3A4EA1A5BC8DA0A768 /* TransOnControlsExtensionBundle.swift */,
+				149B759D6A53DAA4881DB6A7 /* TransOnControlWidget.swift */,
+			);
+			path = TransOnControlsExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5C8694EE3D996035A935195C /* TransOn */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C77872650130DE6DD0697E1A /* Build configuration list for PBXNativeTarget "TransOn" */;
+			buildPhases = (
+				083AE480BFC0D8FF0E68C381 /* Sources */,
+				A94FB5097784B7F2BB703F14 /* Resources */,
+				E6CD92DD60FCBDB17E373F27 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				ED4CAC45FC06C54E91BF063A /* PBXTargetDependency */,
+			);
+			name = TransOn;
+			packageProductDependencies = (
+			);
+			productName = TransOn;
+			productReference = AFF6FDCA4D3F4B9D33D1D5D4 /* TransOn.app */;
+			productType = "com.apple.product-type.application";
+		};
+		62E8A3B9599DF69D703A1A8D /* TransOnControlsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D83BF56B678066F2295E434E /* Build configuration list for PBXNativeTarget "TransOnControlsExtension" */;
+			buildPhases = (
+				E1499C7B1A0226073115A842 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TransOnControlsExtension;
+			packageProductDependencies = (
+			);
+			productName = TransOnControlsExtension;
+			productReference = B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		51DF69E3262AD5E523D94C37 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					5C8694EE3D996035A935195C = {
+						DevelopmentTeam = 8FJN73UDTT;
+						ProvisioningStyle = Manual;
+					};
+					62E8A3B9599DF69D703A1A8D = {
+						DevelopmentTeam = 8FJN73UDTT;
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = D06EE6DC91A6EC8B77BDF82E /* Build configuration list for PBXProject "TransOn" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = A1618EE1B3441DFDC5306B64;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7393AE36EA5FC94DF1CF2A17 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5C8694EE3D996035A935195C /* TransOn */,
+				62E8A3B9599DF69D703A1A8D /* TransOnControlsExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A94FB5097784B7F2BB703F14 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2AF190ADC6AFAC20EC81A4B8 /* AppIcon.icns in Resources */,
+				4931BF24AF08F300BB4D4A2A /* MenuBarControl.png in Resources */,
+				C3D4E795D0E4C0C547AB1055 /* MenuBarIcon.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		083AE480BFC0D8FF0E68C381 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B85D72EBB4C9C4A57AD9E8C2 /* AppCore.swift in Sources */,
+				ECC435F6BD0A16D04F9EBB43 /* ControlCenterShared.swift in Sources */,
+				5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */,
+				E8760771FA247744815D20CE /* PreferencesView.swift in Sources */,
+				A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */,
+				2632AAFAF4CA1006BD8D04E4 /* SettingsView.swift in Sources */,
+				A758C1EB52B011FD722DB1A9 /* TranslationSettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1499C7B1A0226073115A842 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1FDC04AF8671909119ADC27B /* ControlCenterShared.swift in Sources */,
+				305A0F808DF2D0FACEED4F84 /* TransOnControlWidget.swift in Sources */,
+				20A8F39CB4832C9AAB496950 /* TransOnControlsExtensionBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		ED4CAC45FC06C54E91BF063A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 62E8A3B9599DF69D703A1A8D /* TransOnControlsExtension */;
+			targetProxy = 20F87A281FE87BF3E812A185 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		216F9525C6120171B977366E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Config/TransOn.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = "Trans-On";
+				INFOPLIST_FILE = "Config/TransOn-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.grigorym.TransOn;
+				PRODUCT_NAME = "Trans-On";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		A62102B09D9C0AF301C18370 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/TransOnControlsExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_APP_SANDBOX = YES;
+				EXECUTABLE_NAME = TransOnControlsExtension;
+				INFOPLIST_FILE = "Config/TransOnControlsExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.grigorym.TransOn.Controls;
+				PRODUCT_NAME = TransOnControlsExtension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		D4E5869A5707653EA5F4A1C5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/TransOnControlsExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_APP_SANDBOX = YES;
+				EXECUTABLE_NAME = TransOnControlsExtension;
+				INFOPLIST_FILE = "Config/TransOnControlsExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.grigorym.TransOn.Controls;
+				PRODUCT_NAME = TransOnControlsExtension;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		E9DAC70AA97E57C6E1150586 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MARKETING_VERSION = 1.01;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		F2827210F5B5C19A26C5C867 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Config/TransOn.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = "Trans-On";
+				INFOPLIST_FILE = "Config/TransOn-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.grigorym.TransOn;
+				PRODUCT_NAME = "Trans-On";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		FD0004FA55C312BC78C71160 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 8FJN73UDTT;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MARKETING_VERSION = 1.01;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C77872650130DE6DD0697E1A /* Build configuration list for PBXNativeTarget "TransOn" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				216F9525C6120171B977366E /* Debug */,
+				F2827210F5B5C19A26C5C867 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D06EE6DC91A6EC8B77BDF82E /* Build configuration list for PBXProject "TransOn" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E9DAC70AA97E57C6E1150586 /* Debug */,
+				FD0004FA55C312BC78C71160 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D83BF56B678066F2295E434E /* Build configuration list for PBXNativeTarget "TransOnControlsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A62102B09D9C0AF301C18370 /* Debug */,
+				D4E5869A5707653EA5F4A1C5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 51DF69E3262AD5E523D94C37 /* Project object */;
+}

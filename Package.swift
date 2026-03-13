@@ -2,18 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "SelectedTextOverlay",
+    name: "TransOn",
     platforms: [
         .macOS(.v14)
     ],
     targets: [
         .executableTarget(
-            name: "SelectedTextOverlay",
+            name: "TransOn",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("Security"),
-                .linkedFramework("SwiftUI")
+                .linkedFramework("SwiftUI"),
+                .linkedFramework("WidgetKit")
             ]
         )
     ]
