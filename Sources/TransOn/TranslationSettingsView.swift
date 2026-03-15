@@ -15,22 +15,20 @@ struct TranslationSettingsView: View {
         case invalid
     }
 
+    private var palette: SettingsGlassPalette {
+        SettingsGlassPalette(colorScheme: colorScheme)
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("ENGINE")
+            VStack(alignment: .leading, spacing: 14) {
+                GlassSectionTitle(text: "Engine", palette: palette)
 
-                VStack(spacing: 0) {
-                    engineRow(.googleWeb)
-                    divider
-                    engineRow(.googleAPI)
+                GlassGroup(palette: palette) {
+                    engineRow(.googleWeb, subtitle: "(gtx)")
+                    GlassDivider(palette: palette)
+                    engineRow(.googleAPI, subtitle: nil)
                 }
-                .background(cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
 
                 if isGoogleCloudEngine {
                     apiKeyBlock
@@ -39,15 +37,15 @@ struct TranslationSettingsView: View {
 
                 if !viewModel.cloudStatusMessage.isEmpty {
                     Text(viewModel.cloudStatusMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(palette.secondaryText)
                         .padding(.leading, 2)
                 }
             }
-            .frame(maxWidth: 520, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 560, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.never)
@@ -89,29 +87,29 @@ struct TranslationSettingsView: View {
         }
     }
 
-    private func engineRow(_ engine: TranslationEngine) -> some View {
+    private func engineRow(_ engine: TranslationEngine, subtitle: String?) -> some View {
         Button {
             translationEngineRaw = engine.rawValue
         } label: {
-            HStack(spacing: 11) {
+            HStack(spacing: 12) {
                 radioIndicator(isSelected: translationEngineRaw == engine.rawValue)
 
-                if engine == .googleWeb {
-                    (Text("Google Web")
-                        .foregroundStyle(primaryText)
-                     + Text("  (gtx)")
-                        .foregroundStyle(sectionText))
+                HStack(spacing: 4) {
+                    Text(engine == .googleWeb ? "Google Web" : engine.title)
                         .font(.system(size: 13.5, weight: .regular))
-                } else {
-                    Text(engine.title)
-                        .font(.system(size: 13.5, weight: .regular))
-                        .foregroundStyle(primaryText)
+                        .foregroundStyle(palette.primaryText)
+
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 12.5, weight: .regular))
+                            .foregroundStyle(palette.secondaryText.opacity(0.8))
+                    }
                 }
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .frame(height: 44)
+            .frame(minHeight: 46)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -120,8 +118,10 @@ struct TranslationSettingsView: View {
     private func radioIndicator(isSelected: Bool) -> some View {
         ZStack {
             Circle()
-                .stroke(isSelected ? Color.accentColor : radioBorder, lineWidth: 2)
+                .stroke(isSelected ? Color.accentColor : palette.secondaryText.opacity(0.45), lineWidth: 1.8)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.white.opacity(palette.isDark ? 0.05 : 0.22))
                 .frame(width: 18, height: 18)
+
             if isSelected {
                 Circle()
                     .fill(Color.accentColor)
@@ -132,50 +132,57 @@ struct TranslationSettingsView: View {
 
     private var apiKeyBlock: some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(Color.accentColor)
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.accentColor, Color.accentColor.opacity(0.2)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .frame(width: 3)
-                .padding(.vertical, 6)
+                .padding(.vertical, 5)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("GOOGLE CLOUD API KEY")
+                Text("Google Cloud API key")
                     .font(.system(size: 11, weight: .semibold))
-                    .kerning(1.3)
+                    .kerning(1.0)
+                    .textCase(.uppercase)
                     .foregroundStyle(Color.accentColor.opacity(0.9))
 
                 HStack(spacing: 8) {
                     SecureField("••••••••••••••••••", text: $googleCloudApiKeyText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(palette.primaryText.opacity(0.86))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .clipped()
-                        .padding(.horizontal, 10)
-                        .frame(height: 32)
-                        .background(apiInputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .padding(.horizontal, 11)
+                        .frame(height: 34)
+                        .background(palette.inputFill)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .stroke(apiInputBorder, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(palette.inputStroke, lineWidth: 1)
                         )
 
                     Button(action: testAPIKey) {
                         testButtonContent
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(testButtonTint)
+                    .buttonStyle(GlassButtonStyle(palette: palette, prominent: true, tint: testButtonTint))
                     .disabled(googleCloudApiKeyText.isEmpty || testState == .testing)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .background(apiBlockBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(14)
+        .background(palette.apiCardFill)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(apiBlockBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(palette.apiCardStroke, lineWidth: 1)
         )
     }
 
@@ -184,16 +191,12 @@ struct TranslationSettingsView: View {
         switch testState {
         case .idle:
             Text("Test")
-                .font(.system(size: 13, weight: .medium))
         case .testing:
-            ProgressView()
-                .controlSize(.small)
+            Text("Testing...")
         case .valid:
             Label("Valid", systemImage: "checkmark")
-                .font(.system(size: 11, weight: .semibold))
         case .invalid:
             Label("Failed", systemImage: "xmark")
-                .font(.system(size: 11, weight: .semibold))
         }
     }
 
@@ -247,55 +250,5 @@ struct TranslationSettingsView: View {
 
     private func sanitizeAPIKey(_ value: String) -> String {
         value.components(separatedBy: .whitespacesAndNewlines).joined()
-    }
-
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .kerning(0.6)
-            .foregroundStyle(sectionText)
-            .padding(.leading, 2)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(cardBorder)
-            .frame(height: 1)
-    }
-
-    private var cardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
-    }
-
-    private var cardBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.06)
-    }
-
-    private var apiBlockBackground: Color {
-        colorScheme == .dark ? Color.accentColor.opacity(0.15) : Color.accentColor.opacity(0.08)
-    }
-
-    private var apiBlockBorder: Color {
-        colorScheme == .dark ? Color.accentColor.opacity(0.34) : Color.accentColor.opacity(0.24)
-    }
-
-    private var apiInputBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)
-    }
-
-    private var apiInputBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
-    }
-
-    private var radioBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.26) : Color.black.opacity(0.20)
-    }
-
-    private var primaryText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.88) : Color.black.opacity(0.85)
-    }
-
-    private var sectionText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.34) : Color.black.opacity(0.30)
     }
 }

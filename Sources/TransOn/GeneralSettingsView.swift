@@ -14,104 +14,77 @@ struct GeneralSettingsView: View {
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.auto.rawValue
     @Environment(\.colorScheme) private var colorScheme
 
+    private var palette: SettingsGlassPalette {
+        SettingsGlassPalette(colorScheme: colorScheme)
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("GENERAL")
+            VStack(alignment: .leading, spacing: 14) {
+                GlassSectionTitle(text: "General", palette: palette)
 
-                VStack(spacing: 0) {
-                    appearanceRow
+                GlassGroup(palette: palette) {
+                    settingsRow(title: "Appearance") {
+                        themePicker
+                    }
 
-                    divider
+                    GlassDivider(palette: palette)
+
                     settingsRow(title: "Display in") {
-                        Picker("", selection: Binding(
-                            get: { viewModel.menuBarDisplayMode },
-                            set: { viewModel.updateMenuBarDisplayMode($0) }
-                        )) {
-                            ForEach(MenuBarDisplayMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .controlSize(.small)
-                        .frame(width: 120)
+                        onOffPicker
                     }
 
-                    divider
-                    settingsRow(title: "Control Center icon") {
-                        Picker("", selection: Binding(
-                            get: { viewModel.controlCenterIcon },
-                            set: { viewModel.updateControlCenterIcon($0) }
-                        )) {
-                            ForEach(ControlCenterIconOption.allCases) { option in
-                                Label(option.title, systemImage: option.systemImageName).tag(option)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .controlSize(.small)
-                        .frame(width: 160)
+                    GlassDivider(palette: palette)
+
+                    settingsRow(title: "Control Center") {
+                        controlCenterPicker
                     }
 
-                    divider
+                    GlassDivider(palette: palette)
+
                     settingsRow(title: "Hotkey") {
                         HStack(spacing: 8) {
                             hotKeyCaps
-                            Button("Change") {
+
+                            Button(viewModel.isRecording ? "Recording..." : "Change") {
                                 viewModel.beginRecording()
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .buttonStyle(GlassButtonStyle(palette: palette))
                         }
                     }
 
-                    divider
+                    GlassDivider(palette: palette)
+
                     settingsRow(title: "Text size") {
                         HStack(spacing: 8) {
                             stepperControl
+
                             Button("Reset") {
                                 viewModel.updateFontSize(14)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .buttonStyle(GlassButtonStyle(palette: palette))
                         }
                     }
 
-                    divider
+                    GlassDivider(palette: palette)
+
                     settingsRow(title: "Launch at login") {
                         Toggle("", isOn: Binding(
                             get: { viewModel.launchAtLogin },
                             set: { viewModel.updateLaunchAtLogin($0) }
                         ))
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+                        .toggleStyle(GlassToggleStyle(palette: palette))
                     }
                 }
-                .background(cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
 
-                if let hotKeyError = viewModel.hotKeyError {
-                    Text(hotKeyError)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let launchAtLoginError = viewModel.launchAtLoginError {
-                    Text(launchAtLoginError)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                messageBlock(text: viewModel.hotKeyError)
+                messageBlock(text: viewModel.launchAtLoginError)
             }
-            .frame(maxWidth: 520, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 560, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.never)
@@ -121,39 +94,91 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var appearanceRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Appearance")
-                .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(primaryText)
-
-            Picker("", selection: appearanceBinding) {
-                Label("Light", systemImage: "sun.max.fill").tag(AppearanceMode.light)
-                Label("Auto", systemImage: "display").tag(AppearanceMode.auto)
-                Label("Dark", systemImage: "moon.fill").tag(AppearanceMode.dark)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .onChange(of: appearanceBinding.wrappedValue) { _, mode in
-                applyAppearance(mode)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
     private func settingsRow<Content: View>(title: String, @ViewBuilder trailing: () -> Content) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             Text(title)
                 .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(primaryText)
+                .foregroundStyle(palette.primaryText)
 
             Spacer(minLength: 12)
+
             trailing()
         }
         .padding(.horizontal, 14)
-        .frame(height: 44)
+        .frame(minHeight: 46)
+    }
+
+    private var themePicker: some View {
+        HStack(spacing: 0) {
+            ForEach(AppearanceMode.allCases) { mode in
+                Button(mode.rawValue) {
+                    appearanceBinding.wrappedValue = mode
+                    applyAppearance(mode)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(appearanceBinding.wrappedValue == mode ? palette.primaryText : palette.secondaryText)
+                .frame(height: 30)
+                .frame(minWidth: 58)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(appearanceBinding.wrappedValue == mode ? palette.activeSidebarFill : .clear)
+                )
+
+                if mode != AppearanceMode.allCases.last {
+                    Rectangle()
+                        .fill(palette.separator)
+                        .frame(width: 1, height: 18)
+                }
+            }
+        }
+        .padding(2)
+        .background(palette.controlFill)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(palette.controlStroke, lineWidth: 1)
+        )
+    }
+
+    private var onOffPicker: some View {
+        HStack(spacing: 0) {
+            ForEach(MenuBarDisplayMode.allCases) { mode in
+                Button(mode.rawValue) {
+                    viewModel.updateMenuBarDisplayMode(mode)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(viewModel.menuBarDisplayMode == mode ? palette.primaryText : palette.secondaryText)
+                .frame(width: 46, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(viewModel.menuBarDisplayMode == mode ? palette.activeSidebarFill : .clear)
+                )
+            }
+        }
+        .padding(2)
+        .background(palette.controlFill)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(palette.controlStroke, lineWidth: 1)
+        )
+    }
+
+    private var controlCenterPicker: some View {
+        Picker("", selection: Binding(
+            get: { viewModel.controlCenterIcon },
+            set: { viewModel.updateControlCenterIcon($0) }
+        )) {
+            ForEach(ControlCenterIconOption.allCases) { option in
+                Label(option.title, systemImage: option.systemImageName).tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .frame(width: 150)
     }
 
     private var hotKeyCaps: some View {
@@ -161,15 +186,15 @@ struct GeneralSettingsView: View {
             ForEach(hotKeySymbols, id: \.self) { symbol in
                 Text(symbol)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(secondaryText)
+                    .foregroundStyle(palette.secondaryText)
                     .frame(minWidth: 22)
                     .frame(height: 20)
                     .padding(.horizontal, 4)
-                    .background(keyCapBackground)
+                    .background(palette.keyCapFill)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(keyCapBorder, lineWidth: 1)
+                            .stroke(palette.keyCapStroke, lineWidth: 1)
                     )
             }
         }
@@ -182,47 +207,49 @@ struct GeneralSettingsView: View {
             }
 
             Rectangle()
-                .fill(stepperBorder)
-                .frame(width: 1, height: 16)
+                .fill(palette.separator)
+                .frame(width: 1, height: 18)
 
             Text("\(viewModel.fontSizePt) pt")
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(primaryText)
-                .frame(minWidth: 50)
-                .frame(height: 26)
+                .foregroundStyle(palette.primaryText.opacity(0.82))
+                .frame(minWidth: 48)
+                .frame(height: 30)
 
             Rectangle()
-                .fill(stepperBorder)
-                .frame(width: 1, height: 16)
+                .fill(palette.separator)
+                .frame(width: 1, height: 18)
 
             stepperButton("+") {
                 viewModel.updateFontSize(viewModel.fontSizePt + 1)
             }
         }
-        .background(stepperBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(palette.controlFill)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(stepperBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(palette.controlStroke, lineWidth: 1)
         )
     }
 
     private func stepperButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(secondaryText)
-                .frame(width: 24, height: 26)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(palette.secondaryText)
+                .frame(width: 28, height: 30)
         }
         .buttonStyle(.plain)
     }
 
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .kerning(0.6)
-            .foregroundStyle(sectionText)
-            .padding(.leading, 2)
+    @ViewBuilder
+    private func messageBlock(text: String?) -> some View {
+        if let text, !text.isEmpty {
+            Text(text)
+                .font(.system(size: 12.5))
+                .foregroundStyle(palette.secondaryText)
+                .padding(.leading, 2)
+        }
     }
 
     private var hotKeySymbols: [String] {
@@ -242,47 +269,5 @@ struct GeneralSettingsView: View {
         case .dark: NSAppearance(named: .darkAqua)
         case .auto: nil
         }
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(cardBorder)
-            .frame(height: 1)
-    }
-
-    private var cardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
-    }
-
-    private var cardBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.06)
-    }
-
-    private var keyCapBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
-    }
-
-    private var keyCapBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.13)
-    }
-
-    private var stepperBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)
-    }
-
-    private var stepperBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.10)
-    }
-
-    private var primaryText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.88) : Color.black.opacity(0.85)
-    }
-
-    private var secondaryText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.55)
-    }
-
-    private var sectionText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.34) : Color.black.opacity(0.30)
     }
 }

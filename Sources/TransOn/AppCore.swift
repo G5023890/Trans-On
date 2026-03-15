@@ -302,6 +302,44 @@ final class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+final class SettingsWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        if handleCloseShortcut(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleCloseShortcut(event) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        performClose(sender)
+    }
+
+    private func handleCloseShortcut(_ event: NSEvent) -> Bool {
+        if event.keyCode == UInt16(kVK_Escape) {
+            performClose(nil)
+            return true
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == UInt16(kVK_ANSI_W), flags == .command || flags == .control {
+            performClose(nil)
+            return true
+        }
+
+        return false
+    }
+}
+
 final class EscapeTextView: NSTextView {
     var onEscape: (() -> Void)?
 
@@ -1449,9 +1487,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TransOnControlReloader.reload()
         Task { @MainActor in
             self.bindSettingsViewModel(SettingsShared.viewModel)
-            if self.settings.menuBarDisplayMode == .off {
-                self.scheduleSettingsWindowOnLaunch()
-            }
         }
 
         hotKey.onTrigger = { [weak self] in
@@ -1523,9 +1558,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.onMenuBarDisplayModeChanged = { [weak self] mode in
             self?.settings.setMenuBarDisplayMode(mode)
             self?.rebuildStatusItem()
-            if mode == .off {
-                self?.scheduleSettingsWindowOnLaunch()
-            }
         }
         viewModel.onControlCenterIconChanged = { icon in
             AppSettings.shared.setControlCenterIcon(icon)
@@ -1553,31 +1585,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private func scheduleSettingsWindowOnLaunch() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            self.showFallbackSettingsWindow()
-            self.fallbackSettingsWindowController?.window?.orderFrontRegardless()
-        }
-    }
-
-    @MainActor
     private func showFallbackSettingsWindow() {
         let viewModel = settingsViewModel ?? SettingsShared.viewModel
 
         if fallbackSettingsWindowController == nil {
             let host = NSHostingController(rootView: PreferencesView(viewModel: viewModel))
-            let window = NSWindow(contentViewController: host)
+            let window = SettingsWindow(contentViewController: host)
             window.title = "Settings"
-            window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 720, height: 420))
+            window.styleMask = [.titled, .closable, .fullSizeContentView]
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.setContentSize(NSSize(width: 760, height: 500))
             window.center()
             window.tabbingMode = .disallowed
-            window.toolbarStyle = .preference
-            let toolbar = NSToolbar(identifier: "TransOnSettingsToolbar")
-            toolbar.showsBaselineSeparator = false
-            window.toolbar = toolbar
+            window.standardWindowButton(.closeButton)?.isHidden = true
             window.standardWindowButton(.miniaturizeButton)?.isHidden = true
             window.standardWindowButton(.zoomButton)?.isHidden = true
             window.isReleasedWhenClosed = false

@@ -4,29 +4,33 @@ struct PreferencesView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @Environment(\.colorScheme) private var colorScheme
 
+    private var palette: SettingsGlassPalette {
+        SettingsGlassPalette(colorScheme: colorScheme)
+    }
+
     var body: some View {
-        ZStack {
-            windowBackground
-                .ignoresSafeArea()
+        VStack(spacing: 0) {
+            titleBar
 
             HStack(spacing: 0) {
                 sidebar
 
                 Rectangle()
-                    .fill(borderColor)
+                    .fill(palette.separator)
                     .frame(width: 1)
 
                 detail
             }
-            .background(panelBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(panelBorder, lineWidth: 1)
-            )
-            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 720, minHeight: 420)
+        .background(palette.panelFill)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0, style: .continuous)
+                .stroke(palette.panelStroke.opacity(0.8), lineWidth: 1)
+        )
+        .frame(minWidth: 760, minHeight: 500)
+        .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: Binding(
             get: { viewModel.isRecording },
             set: { isPresented in
@@ -39,13 +43,37 @@ struct PreferencesView: View {
         }
     }
 
+    private var titleBar: some View {
+        ZStack {
+            HStack(spacing: 8) {
+                trafficDot(fill: Color(red: 1.00, green: 0.37, blue: 0.34))
+                trafficDot(fill: Color(red: 1.00, green: 0.74, blue: 0.18))
+                trafficDot(fill: Color(red: 0.16, green: 0.78, blue: 0.25))
+                Spacer(minLength: 0)
+            }
+
+            Text("Settings")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(palette.primaryText.opacity(0.78))
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 52)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.separator)
+                .frame(height: 1)
+        }
+    }
+
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(SettingsSection.allCases) { section in
                 Button {
-                    viewModel.selectedSection = section
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        viewModel.selectedSection = section
+                    }
                 } label: {
-                    HStack(spacing: 9) {
+                    HStack(spacing: 10) {
                         sidebarIcon(for: section)
 
                         Text(section.title)
@@ -55,10 +83,10 @@ struct PreferencesView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
-                    .frame(height: 34)
+                    .frame(height: 36)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(sidebarItemBackground(for: section))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -67,84 +95,61 @@ struct PreferencesView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 12)
-        .frame(width: 180)
-        .background(sidebarBackground)
+        .frame(width: 170)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(palette.sidebarFill)
+        .background(.thinMaterial)
     }
 
     @ViewBuilder
     private var detail: some View {
-        switch viewModel.selectedSection {
-        case .general:
-            GeneralSettingsView(viewModel: viewModel)
-                .transition(.opacity)
-        case .translation:
-            TranslationSettingsView(viewModel: viewModel)
-                .transition(.opacity)
-        case .privacy:
-            PrivacySettingsView()
-                .transition(.opacity)
+        Group {
+            switch viewModel.selectedSection {
+            case .general:
+                GeneralSettingsView(viewModel: viewModel)
+            case .translation:
+                TranslationSettingsView(viewModel: viewModel)
+            case .privacy:
+                PrivacySettingsView()
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func sidebarIcon(for section: SettingsSection) -> some View {
-        let fill: Color
-        switch section {
+        let gradient: LinearGradient = switch section {
         case .general:
-            fill = colorScheme == .dark ? Color.white.opacity(0.20) : Color.black.opacity(0.45)
+            LinearGradient(colors: [Color(red: 0.64, green: 0.64, blue: 0.68), Color(red: 0.43, green: 0.43, blue: 0.46)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .translation:
-            fill = Color.accentColor
+            LinearGradient(colors: [Color(red: 0.24, green: 0.61, blue: 1.00), Color(red: 0.04, green: 0.44, blue: 0.87)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .privacy:
-            fill = Color.green
+            LinearGradient(colors: [Color(red: 0.23, green: 0.82, blue: 0.42), Color(red: 0.12, green: 0.66, blue: 0.31)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
 
         return ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(fill)
-                .frame(width: 24, height: 24)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(gradient)
+                .frame(width: 22, height: 22)
 
             Image(systemName: section.systemImage)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
         }
+        .shadow(color: Color.black.opacity(0.12), radius: 3, y: 1)
     }
 
     private func sidebarItemBackground(for section: SettingsSection) -> Color {
-        if viewModel.selectedSection == section {
-            return colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.07)
-        }
-        return .clear
+        viewModel.selectedSection == section ? palette.activeSidebarFill : .clear
     }
 
     private func sidebarTextColor(for section: SettingsSection) -> Color {
-        if viewModel.selectedSection == section {
-            return colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.86)
-        }
-        return colorScheme == .dark ? Color.white.opacity(0.48) : Color.black.opacity(0.45)
+        viewModel.selectedSection == section ? palette.activeSidebarText : palette.inactiveSidebarText
     }
 
-    private var windowBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.10, green: 0.11, blue: 0.13)
-            : Color(red: 0.91, green: 0.91, blue: 0.93)
-    }
-
-    private var panelBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.16, green: 0.16, blue: 0.18)
-            : Color(red: 0.95, green: 0.95, blue: 0.96)
-    }
-
-    private var sidebarBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.13, green: 0.14, blue: 0.16)
-            : Color(red: 0.90, green: 0.90, blue: 0.92)
-    }
-
-    private var borderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)
-    }
-
-    private var panelBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.10)
+    private func trafficDot(fill: Color) -> some View {
+        Circle()
+            .fill(fill)
+            .frame(width: 12, height: 12)
+            .shadow(color: Color.black.opacity(0.12), radius: 1)
     }
 }

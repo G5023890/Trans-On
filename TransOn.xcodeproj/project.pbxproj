@@ -13,6 +13,7 @@
 		2AF190ADC6AFAC20EC81A4B8 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = F379C31424C9A200360B4E21 /* AppIcon.icns */; };
 		305A0F808DF2D0FACEED4F84 /* TransOnControlWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149B759D6A53DAA4881DB6A7 /* TransOnControlWidget.swift */; };
 		4931BF24AF08F300BB4D4A2A /* MenuBarControl.png in Resources */ = {isa = PBXBuildFile; fileRef = 5041587DC6A0C6AF64830880 /* MenuBarControl.png */; };
+		4AEAED017C4E2C2F3482455B /* SettingsGlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4B5AA58125FE40E85F3451 /* SettingsGlassStyle.swift */; };
 		5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */; };
 		A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */; };
 		A73A24DB660D33625D2E7233 /* TransOnControlsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -56,6 +57,7 @@
 		5041587DC6A0C6AF64830880 /* MenuBarControl.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarControl.png; sourceTree = "<group>"; };
 		5573653CB72CCE00D6A478AF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsView.swift; sourceTree = "<group>"; };
+		7E4B5AA58125FE40E85F3451 /* SettingsGlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsGlassStyle.swift; sourceTree = "<group>"; };
 		AB7E29D42AA195B0BC08D1A2 /* MenuBarIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
 		AFF6FDCA4D3F4B9D33D1D5D4 /* TransOn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TransOn.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenterShared.swift; sourceTree = "<group>"; };
@@ -73,6 +75,7 @@
 				4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */,
 				190F6A95A118CA1782B809A3 /* PreferencesView.swift */,
 				6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */,
+				7E4B5AA58125FE40E85F3451 /* SettingsGlassStyle.swift */,
 				5573653CB72CCE00D6A478AF /* SettingsView.swift */,
 				34DCFDD8418DEC47CF626DE0 /* TranslationSettingsView.swift */,
 			);
@@ -219,6 +222,7 @@
 				5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */,
 				E8760771FA247744815D20CE /* PreferencesView.swift in Sources */,
 				A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */,
+				4AEAED017C4E2C2F3482455B /* SettingsGlassStyle.swift in Sources */,
 				2632AAFAF4CA1006BD8D04E4 /* SettingsView.swift in Sources */,
 				A758C1EB52B011FD722DB1A9 /* TranslationSettingsView.swift in Sources */,
 			);
