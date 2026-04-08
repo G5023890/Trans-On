@@ -109,6 +109,8 @@ struct PreferencesView: View {
                 GeneralSettingsView(viewModel: viewModel)
             case .translation:
                 TranslationSettingsView(viewModel: viewModel)
+            case .diagnostics:
+                DiagnosticsSettingsView(viewModel: viewModel)
             case .privacy:
                 PrivacySettingsView()
             }
@@ -122,6 +124,8 @@ struct PreferencesView: View {
             LinearGradient(colors: [Color(red: 0.64, green: 0.64, blue: 0.68), Color(red: 0.43, green: 0.43, blue: 0.46)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .translation:
             LinearGradient(colors: [Color(red: 0.24, green: 0.61, blue: 1.00), Color(red: 0.04, green: 0.44, blue: 0.87)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .diagnostics:
+            LinearGradient(colors: [Color(red: 1.00, green: 0.67, blue: 0.18), Color(red: 0.86, green: 0.36, blue: 0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .privacy:
             LinearGradient(colors: [Color(red: 0.23, green: 0.82, blue: 0.42), Color(red: 0.12, green: 0.66, blue: 0.31)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }

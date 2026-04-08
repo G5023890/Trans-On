@@ -35,6 +35,14 @@ struct TranslationSettingsView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
+                if isGoogleCloudEngine, viewModel.googleCloudDiagnosticTitle.contains("failed") {
+                    Text("Последняя ошибка: \(viewModel.googleCloudDiagnosticDetail)")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.red.opacity(0.85))
+                        .padding(.leading, 2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if !viewModel.cloudStatusMessage.isEmpty {
                     Text(viewModel.cloudStatusMessage)
                         .font(.system(size: 12.5))
@@ -95,7 +103,7 @@ struct TranslationSettingsView: View {
                 radioIndicator(isSelected: translationEngineRaw == engine.rawValue)
 
                 HStack(spacing: 4) {
-                    Text(engine == .googleWeb ? "Google Web" : engine.title)
+                    Text(engine.title)
                         .font(.system(size: 13.5, weight: .regular))
                         .foregroundStyle(palette.primaryText)
 

@@ -50,7 +50,53 @@ enum TranslationEngine: String, CaseIterable, Identifiable {
         case .googleAPI:
             return "Google Cloud API"
         case .googleWeb:
-            return "Google Web (gtx)"
+            return "Google Web"
+        }
+    }
+}
+
+enum TranslationBackendVariant: Hashable {
+    case googleWebGtx
+    case googleCloudAPI
+    case googleMobileWeb
+
+    var displayText: String {
+        switch self {
+        case .googleWebGtx:
+            return "Google Web • gtx"
+        case .googleCloudAPI:
+            return "Google Cloud API"
+        case .googleMobileWeb:
+            return "Google Web • mobile"
+        }
+    }
+}
+
+struct TranslationOutcome {
+    let text: String
+    let variants: [TranslationBackendVariant]
+
+    var statusText: String {
+        let uniqueVariants = variants.uniqued()
+        guard !uniqueVariants.isEmpty else { return "" }
+        return uniqueVariants.map(\.displayText).joined(separator: " / ")
+    }
+}
+
+private extension Array where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen = Set<Element>()
+        var result: [Element] = []
+        result.reserveCapacity(count)
+        for element in self where seen.insert(element).inserted {
+            result.append(element)
+        }
+        return result
+    }
+
+    mutating func appendUnique(_ element: Element) {
+        if !contains(element) {
+            append(element)
         }
     }
 }
@@ -362,6 +408,9 @@ final class OverlayView: NSView {
     private let loadingContainer = NSView()
     private let loadingIndicator = NSProgressIndicator()
     private let loadingLabel = NSTextField(labelWithString: "Идет перевод")
+    private let statusBar = NSView()
+    private let statusSeparator = NSView()
+    private let statusLabel = NSTextField(labelWithString: "")
     private var loadingTimer: Timer?
     private var loadingBaseMessage = "Идет перевод"
     private var loadingDotFrame = 0
@@ -409,21 +458,49 @@ final class OverlayView: NSView {
         loadingLabel.alignment = .center
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.wantsLayer = true
+        statusBar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
+
+        statusSeparator.translatesAutoresizingMaskIntoConstraints = false
+        statusSeparator.wantsLayer = true
+        statusSeparator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.09).cgColor
+
+        statusLabel.textColor = .white.withAlphaComponent(0.72)
+        statusLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        statusLabel.alignment = .right
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        statusBar.addSubview(statusSeparator)
+        statusBar.addSubview(statusLabel)
+
         loadingContainer.addSubview(loadingIndicator)
         loadingContainer.addSubview(loadingLabel)
 
         addSubview(scrollView)
         addSubview(loadingContainer)
+        addSubview(statusBar)
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
             loadingContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             loadingContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             loadingContainer.topAnchor.constraint(equalTo: topAnchor),
-            loadingContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            loadingContainer.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+
+            statusBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: 34),
+
+            statusSeparator.topAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusSeparator.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor),
+            statusSeparator.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor),
+            statusSeparator.heightAnchor.constraint(equalToConstant: 1),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: loadingContainer.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: loadingContainer.centerYAnchor, constant: -12),
@@ -431,13 +508,17 @@ final class OverlayView: NSView {
             loadingLabel.topAnchor.constraint(equalTo: loadingIndicator.bottomAnchor, constant: 14),
             loadingLabel.centerXAnchor.constraint(equalTo: loadingContainer.centerXAnchor),
             loadingLabel.leadingAnchor.constraint(greaterThanOrEqualTo: loadingContainer.leadingAnchor, constant: 20),
-            loadingLabel.trailingAnchor.constraint(lessThanOrEqualTo: loadingContainer.trailingAnchor, constant: -20)
+            loadingLabel.trailingAnchor.constraint(lessThanOrEqualTo: loadingContainer.trailingAnchor, constant: -20),
+
+            statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: statusBar.leadingAnchor, constant: 16),
+            statusLabel.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -16)
         ])
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func updateText(_ text: String) {
+    func updateText(_ text: String, statusText: String? = nil) {
         stopLoadingAnimation()
         loadingIndicator.stopAnimation(nil)
         loadingContainer.isHidden = true
@@ -445,15 +526,23 @@ final class OverlayView: NSView {
         textView.textStorage?.setAttributedString(
             NSAttributedString(string: text, attributes: makeTextAttributes())
         )
+        updateStatusText(statusText)
         textView.scrollToBeginningOfDocument(nil)
         window?.makeFirstResponder(textView)
     }
 
-    func showLoading(message: String) {
+    func showLoading(message: String, statusText: String? = nil) {
         startLoadingAnimation(message: message)
+        updateStatusText(statusText)
         scrollView.isHidden = true
         loadingContainer.isHidden = false
         loadingIndicator.startAnimation(nil)
+    }
+
+    func updateStatusText(_ text: String?) {
+        let sanitized = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        statusLabel.stringValue = sanitized
+        statusLabel.isHidden = sanitized.isEmpty
     }
 
     private func startLoadingAnimation(message: String) {
@@ -538,20 +627,24 @@ final class OverlayController {
         panel.contentView?.layer?.masksToBounds = true
     }
 
-    func show(text: String) {
+    func show(text: String, statusText: String? = nil) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             NSSound.beep()
             return
         }
-        content.updateText(text)
+        content.updateText(text, statusText: statusText)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 
-    func showLoading(message: String) {
-        content.showLoading(message: message)
+    func showLoading(message: String, statusText: String? = nil) {
+        content.showLoading(message: message, statusText: statusText)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    func updateStatusText(_ text: String?) {
+        content.updateStatusText(text)
     }
 
     func setFontSize(_ size: CGFloat) {
@@ -675,9 +768,17 @@ final class TranslationService {
     private let maxChunkChars = 1800
     private let maxBatchParagraphs = 6
     private let maxRetries = 3
+    private let onGoogleCloudSuccess: () -> Void
+    private let onGoogleCloudFailure: (String) -> Void
 
-    init(settings: AppSettings) {
+    init(
+        settings: AppSettings,
+        onGoogleCloudSuccess: @escaping () -> Void = {},
+        onGoogleCloudFailure: @escaping (String) -> Void = { _ in }
+    ) {
         self.settings = settings
+        self.onGoogleCloudSuccess = onGoogleCloudSuccess
+        self.onGoogleCloudFailure = onGoogleCloudFailure
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 12
         config.timeoutIntervalForResource = 20
@@ -685,7 +786,21 @@ final class TranslationService {
         session = URLSession(configuration: config)
     }
 
-    func translateToRussian(_ text: String, completion: @escaping (String?) -> Void) {
+    func previewStatusText(for text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return settings.translationEngine.title
+        }
+
+        switch settings.translationEngine {
+        case .googleAPI:
+            return TranslationBackendVariant.googleCloudAPI.displayText
+        case .googleWeb:
+            return TranslationBackendVariant.googleWebGtx.displayText
+        }
+    }
+
+    func translateToRussian(_ text: String, completion: @escaping (TranslationOutcome?) -> Void) {
         let source = text
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         let provider = settings.translationEngine
@@ -695,13 +810,17 @@ final class TranslationService {
         }
 
         if shouldSkipTranslation(trimmed) {
-            completion(source)
+            completion(TranslationOutcome(text: source, variants: []))
             return
         }
 
+        translateWithNetworkProvider(source, provider: provider, completion: completion)
+    }
+
+    private func translateWithNetworkProvider(_ source: String, provider: TranslationEngine, completion: @escaping (TranslationOutcome?) -> Void) {
         workerQueue.async { [weak self] in
             guard let self else {
-                DispatchQueue.main.async { completion(source) }
+                DispatchQueue.main.async { completion(TranslationOutcome(text: source, variants: [])) }
                 return
             }
 
@@ -710,14 +829,14 @@ final class TranslationService {
             let chunks = self.makeChunks(from: translatable, maxChars: self.maxChunkChars, maxParagraphs: self.maxBatchParagraphs)
 
             guard !chunks.isEmpty else {
-                DispatchQueue.main.async { completion(source) }
+                DispatchQueue.main.async { completion(TranslationOutcome(text: source, variants: [])) }
                 return
             }
 
-            self.translateChunks(chunks, at: 0, provider: provider, translatedByParagraph: [:]) { translatedByParagraph in
+            self.translateChunks(chunks, at: 0, provider: provider, translatedByParagraph: [:], usedVariants: []) { translatedByParagraph, variants in
                 let merged = self.reassemble(segments: segments, paragraphs: paragraphs, translatedByParagraph: translatedByParagraph)
                 DispatchQueue.main.async {
-                    completion(merged ?? source)
+                    completion(TranslationOutcome(text: merged ?? source, variants: variants))
                 }
             }
         }
@@ -833,17 +952,18 @@ final class TranslationService {
         at index: Int,
         provider: TranslationEngine,
         translatedByParagraph: [Int: String],
-        completion: @escaping ([Int: String]) -> Void
+        usedVariants: [TranslationBackendVariant],
+        completion: @escaping ([Int: String], [TranslationBackendVariant]) -> Void
     ) {
         guard index < chunks.count else {
-            completion(translatedByParagraph)
+            completion(translatedByParagraph, usedVariants)
             return
         }
 
         let chunk = chunks[index]
-        translateChunkWithRetry(chunk, provider: provider, attempt: 1) { [weak self] translated in
+        translateChunkWithRetry(chunk, provider: provider, attempt: 1) { [weak self] translated, backendVariants in
             guard let self else {
-                completion(translatedByParagraph)
+                completion(translatedByParagraph, usedVariants)
                 return
             }
 
@@ -852,9 +972,19 @@ final class TranslationService {
                 merged[item.index] = self.mergeWhitespaceFormatting(original: item.text, translated: translated[offset])
             }
 
+            var updatedVariants = usedVariants
+            backendVariants.forEach { updatedVariants.appendUnique($0) }
+
             let delay = Double.random(in: 0.3...0.5)
             self.workerQueue.asyncAfter(deadline: .now() + delay) {
-                self.translateChunks(chunks, at: index + 1, provider: provider, translatedByParagraph: merged, completion: completion)
+                self.translateChunks(
+                    chunks,
+                    at: index + 1,
+                    provider: provider,
+                    translatedByParagraph: merged,
+                    usedVariants: updatedVariants,
+                    completion: completion
+                )
             }
         }
     }
@@ -863,21 +993,28 @@ final class TranslationService {
         _ chunk: [ParagraphItem],
         provider: TranslationEngine,
         attempt: Int,
-        completion: @escaping ([String]) -> Void
+        completion: @escaping ([String], [TranslationBackendVariant]) -> Void
     ) {
-        requestBatchTranslation(for: chunk.map(\.text), provider: provider) { [weak self] translated in
+        requestBatchTranslation(for: chunk.map(\.text), provider: provider) { [weak self] result in
             guard let self else {
-                completion(chunk.map(\.text))
+                completion(chunk.map(\.text), [])
                 return
             }
 
-            if let translated, translated.count == chunk.count {
-                completion(translated)
+            if let result, result.texts.count == chunk.count {
+                completion(result.texts, [result.backend])
                 return
             }
 
             guard attempt < self.maxRetries else {
-                self.translateChunkIndividually(chunk, provider: provider, at: 0, translated: [], completion: completion)
+                self.translateChunkIndividually(
+                    chunk,
+                    provider: provider,
+                    at: 0,
+                    translated: [],
+                    usedVariants: [],
+                    completion: completion
+                )
                 return
             }
 
@@ -894,22 +1031,32 @@ final class TranslationService {
         provider: TranslationEngine,
         at index: Int,
         translated: [String],
-        completion: @escaping ([String]) -> Void
+        usedVariants: [TranslationBackendVariant],
+        completion: @escaping ([String], [TranslationBackendVariant]) -> Void
     ) {
         guard index < chunk.count else {
-            completion(translated)
+            completion(translated, usedVariants)
             return
         }
 
         let paragraph = chunk[index].text
-        translateParagraphWithRetry(paragraph, provider: provider, attempt: 1) { [weak self] translatedParagraph in
+        translateParagraphWithRetry(paragraph, provider: provider, attempt: 1) { [weak self] translatedParagraph, backendVariants in
             guard let self else {
-                completion(translated + [translatedParagraph ?? paragraph])
+                completion(translated + [translatedParagraph ?? paragraph], usedVariants)
                 return
             }
 
             let next = translated + [translatedParagraph ?? paragraph]
-            self.translateChunkIndividually(chunk, provider: provider, at: index + 1, translated: next, completion: completion)
+            var updatedVariants = usedVariants
+            backendVariants.forEach { updatedVariants.appendUnique($0) }
+            self.translateChunkIndividually(
+                chunk,
+                provider: provider,
+                at: index + 1,
+                translated: next,
+                usedVariants: updatedVariants,
+                completion: completion
+            )
         }
     }
 
@@ -917,15 +1064,15 @@ final class TranslationService {
         _ text: String,
         provider: TranslationEngine,
         attempt: Int,
-        completion: @escaping (String?) -> Void
+        completion: @escaping (String?, [TranslationBackendVariant]) -> Void
     ) {
         let parts = splitLongParagraph(text, maxChars: maxChunkChars)
-        translateParagraphParts(parts, provider: provider, at: 0, translatedParts: [], attempt: attempt) { translatedParts in
+        translateParagraphParts(parts, provider: provider, at: 0, translatedParts: [], usedVariants: [], attempt: attempt) { translatedParts, backendVariants in
             guard let translatedParts else {
-                completion(nil)
+                completion(nil, backendVariants)
                 return
             }
-            completion(translatedParts.joined())
+            completion(translatedParts.joined(), backendVariants)
         }
     }
 
@@ -934,34 +1081,53 @@ final class TranslationService {
         provider: TranslationEngine,
         at index: Int,
         translatedParts: [String],
+        usedVariants: [TranslationBackendVariant],
         attempt: Int,
-        completion: @escaping ([String]?) -> Void
+        completion: @escaping ([String]?, [TranslationBackendVariant]) -> Void
     ) {
         guard index < parts.count else {
-            completion(translatedParts)
+            completion(translatedParts, usedVariants)
             return
         }
 
-        requestBatchTranslation(for: [parts[index]], provider: provider) { [weak self] translated in
+        requestBatchTranslation(for: [parts[index]], provider: provider) { [weak self] result in
             guard let self else {
-                completion(nil)
+                completion(nil, usedVariants)
                 return
             }
 
-            if let piece = translated?.first {
-                self.translateParagraphParts(parts, provider: provider, at: index + 1, translatedParts: translatedParts + [piece], attempt: 1, completion: completion)
+            if let result, let piece = result.texts.first {
+                var updatedVariants = usedVariants
+                updatedVariants.appendUnique(result.backend)
+                self.translateParagraphParts(
+                    parts,
+                    provider: provider,
+                    at: index + 1,
+                    translatedParts: translatedParts + [piece],
+                    usedVariants: updatedVariants,
+                    attempt: 1,
+                    completion: completion
+                )
                 return
             }
 
             guard attempt < self.maxRetries else {
-                completion(nil)
+                completion(nil, usedVariants)
                 return
             }
 
             let backoff = min(1.6, 0.35 * pow(2.0, Double(attempt - 1)))
             let jitter = Double.random(in: 0.08...0.2)
             self.workerQueue.asyncAfter(deadline: .now() + backoff + jitter) {
-                self.translateParagraphParts(parts, provider: provider, at: index, translatedParts: translatedParts, attempt: attempt + 1, completion: completion)
+                self.translateParagraphParts(
+                    parts,
+                    provider: provider,
+                    at: index,
+                    translatedParts: translatedParts,
+                    usedVariants: usedVariants,
+                    attempt: attempt + 1,
+                    completion: completion
+                )
             }
         }
     }
@@ -969,23 +1135,23 @@ final class TranslationService {
     private func requestBatchTranslation(
         for paragraphs: [String],
         provider: TranslationEngine,
-        completion: @escaping ([String]?) -> Void
+        completion: @escaping (BatchTranslationResult?) -> Void
     ) {
         guard !paragraphs.isEmpty else {
-            completion([])
+            completion(BatchTranslationResult(texts: [], backend: .googleWebGtx))
             return
         }
 
         switch provider {
         case .googleWeb:
-            requestWebGtxBatchTranslation(for: paragraphs) { [weak self] translated in
+            requestWebGtxBatchTranslation(for: paragraphs) { [weak self] result in
                 guard let self else {
-                    completion(translated)
+                    completion(result)
                     return
                 }
 
-                if translated != nil {
-                    completion(translated)
+                if let result {
+                    completion(result)
                     return
                 }
 
@@ -997,21 +1163,21 @@ final class TranslationService {
                 }
             }
         case .googleAPI:
-            requestGoogleCloudBatchTranslation(for: paragraphs) { [weak self] translated in
+            requestGoogleCloudBatchTranslation(for: paragraphs) { [weak self] result in
                 guard let self else {
-                    completion(translated)
+                    completion(result)
                     return
                 }
 
-                if translated != nil {
-                    completion(translated)
+                if let result {
+                    completion(result)
                     return
                 }
 
                 NSLog("Google Cloud translation failed, falling back to Google Web (gtx).")
-                self.requestWebGtxBatchTranslation(for: paragraphs) { gtxTranslated in
-                    if gtxTranslated != nil {
-                        completion(gtxTranslated)
+                self.requestWebGtxBatchTranslation(for: paragraphs) { gtxResult in
+                    if let gtxResult {
+                        completion(gtxResult)
                         return
                     }
                     self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
@@ -1020,7 +1186,7 @@ final class TranslationService {
         }
     }
 
-    private func requestWebGtxBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+    private func requestWebGtxBatchTranslation(for paragraphs: [String], completion: @escaping (BatchTranslationResult?) -> Void) {
         guard var components = URLComponents(string: "https://translate.googleapis.com/translate_a/single") else {
             completion(nil)
             return
@@ -1053,11 +1219,13 @@ final class TranslationService {
                 completion(nil)
                 return
             }
-            completion(Self.parseBatchTranslatedTexts(from: data, expectedCount: paragraphs.count))
+            completion(Self.parseBatchTranslatedTexts(from: data, expectedCount: paragraphs.count).map {
+                BatchTranslationResult(texts: $0, backend: .googleWebGtx)
+            })
         }.resume()
     }
 
-    private func requestGoogleMobileWebBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+    private func requestGoogleMobileWebBatchTranslation(for paragraphs: [String], completion: @escaping (BatchTranslationResult?) -> Void) {
         requestGoogleMobileWebBatchTranslation(paragraphs, at: 0, translated: [], completion: completion)
     }
 
@@ -1065,10 +1233,10 @@ final class TranslationService {
         _ paragraphs: [String],
         at index: Int,
         translated: [String],
-        completion: @escaping ([String]?) -> Void
+        completion: @escaping (BatchTranslationResult?) -> Void
     ) {
         guard index < paragraphs.count else {
-            completion(translated)
+            completion(BatchTranslationResult(texts: translated, backend: .googleMobileWeb))
             return
         }
 
@@ -1131,9 +1299,11 @@ final class TranslationService {
         }.resume()
     }
 
-    private func requestGoogleCloudBatchTranslation(for paragraphs: [String], completion: @escaping ([String]?) -> Void) {
+    private func requestGoogleCloudBatchTranslation(for paragraphs: [String], completion: @escaping (BatchTranslationResult?) -> Void) {
         guard let apiKey = googleCloudApiKey(), !apiKey.isEmpty else {
-            NSLog("Google Cloud API key is missing. Set it in app menu or via GOOGLE_CLOUD_TRANSLATE_API_KEY / GOOGLE_API_KEY.")
+            let message = "Google Cloud API key is missing. Set it in app menu or via GOOGLE_CLOUD_TRANSLATE_API_KEY / GOOGLE_API_KEY."
+            NSLog(message)
+            notifyGoogleCloudFailure(message)
             completion(nil)
             return
         }
@@ -1169,16 +1339,45 @@ final class TranslationService {
                 (200...299).contains(httpResponse.statusCode),
                 let data
             else {
+                let message: String
                 if let httpResponse = response as? HTTPURLResponse, let data, let body = String(data: data, encoding: .utf8) {
-                    NSLog("Google Cloud translation failed with status \(httpResponse.statusCode): \(body.prefix(240))")
+                    message = "Google Cloud translation failed with status \(httpResponse.statusCode): \(body.prefix(240))"
+                    NSLog(message)
                 } else if let error {
-                    NSLog("Google Cloud translation request error: \(error.localizedDescription)")
+                    message = "Google Cloud translation request error: \(error.localizedDescription)"
+                    NSLog(message)
                 }
+                else {
+                    message = "Google Cloud translation failed with an unknown network error."
+                    NSLog(message)
+                }
+                self.notifyGoogleCloudFailure(message)
                 completion(nil)
                 return
             }
-            completion(Self.parseGoogleCloudTranslatedTexts(from: data, expectedCount: paragraphs.count))
+            guard let texts = Self.parseGoogleCloudTranslatedTexts(from: data, expectedCount: paragraphs.count) else {
+                let message = "Google Cloud response could not be parsed."
+                NSLog(message)
+                self.notifyGoogleCloudFailure(message)
+                completion(nil)
+                return
+            }
+
+            self.notifyGoogleCloudSuccess()
+            completion(BatchTranslationResult(texts: texts, backend: .googleCloudAPI))
         }.resume()
+    }
+
+    private func notifyGoogleCloudSuccess() {
+        DispatchQueue.main.async { [onGoogleCloudSuccess] in
+            onGoogleCloudSuccess()
+        }
+    }
+
+    private func notifyGoogleCloudFailure(_ message: String) {
+        DispatchQueue.main.async { [onGoogleCloudFailure] in
+            onGoogleCloudFailure(message)
+        }
     }
 
     private static func parseBatchTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
@@ -1208,6 +1407,11 @@ final class TranslationService {
         }
 
         return translations
+    }
+
+    private struct BatchTranslationResult {
+        let texts: [String]
+        let backend: TranslationBackendVariant
     }
 
     private static func parseGoogleCloudTranslatedTexts(from data: Data, expectedCount: Int) -> [String]? {
@@ -1467,7 +1671,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var settings = AppSettings.shared
     private let overlay = OverlayController()
     private let selection = SelectionService()
-    private lazy var translator = TranslationService(settings: settings)
+    private lazy var translator = TranslationService(
+        settings: settings,
+        onGoogleCloudSuccess: { [weak self] in
+            Task { @MainActor in
+                self?.settingsViewModel?.recordGoogleCloudSuccess()
+            }
+        },
+        onGoogleCloudFailure: { [weak self] message in
+            Task { @MainActor in
+                self?.settingsViewModel?.recordGoogleCloudFailure(message)
+            }
+        }
+    )
     private let hotKey = HotKeyManager()
     private let launchAtLogin = LaunchAtLoginManager()
 
@@ -1494,17 +1710,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.selection.fetchSelectedText { [weak self] text in
                 guard let self else { return }
                 let sourceText = text ?? ""
+                let loadingStatusText = self.translator.previewStatusText(for: sourceText)
 
                 guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    self.overlay.show(text: "Не удалось получить выделенный текст.")
+                    self.overlay.show(text: "Не удалось получить выделенный текст.", statusText: loadingStatusText)
                     return
                 }
 
-                self.overlay.showLoading(message: "Идет перевод")
+                self.overlay.showLoading(message: "Идет перевод", statusText: loadingStatusText)
 
                 self.translator.translateToRussian(sourceText) { translated in
-                    let finalText = translated ?? sourceText
-                    self.overlay.show(text: finalText)
+                    let finalText = translated?.text ?? sourceText
+                    let finalStatusText = {
+                        let status = translated?.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        return status.isEmpty ? loadingStatusText : status
+                    }()
+                    self.overlay.show(text: finalText, statusText: finalStatusText)
                 }
             }
         }

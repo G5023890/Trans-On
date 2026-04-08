@@ -19,6 +19,7 @@ struct HotKeyBinding: Hashable {
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case translation
+    case diagnostics
     case privacy
 
     var id: String { rawValue }
@@ -27,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .translation: return "Translation"
+        case .diagnostics: return "Diagnostics"
         case .privacy: return "Privacy"
         }
     }
@@ -35,6 +37,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .translation: return "globe"
+        case .diagnostics: return "exclamationmark.triangle"
         case .privacy: return "lock.shield"
         }
     }
@@ -118,6 +121,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var hotKeyError: String?
     @Published var launchAtLoginError: String?
     @Published var cloudStatusMessage: String = ""
+    @Published var googleCloudDiagnosticTitle: String = "No recent Google Cloud errors"
+    @Published var googleCloudDiagnosticDetail: String = "When Google Cloud fails, the latest reason appears here."
+    @Published var googleCloudDiagnosticUpdatedAt: String = "Not yet updated"
 
     var onHotKeyChanged: ((UInt32, UInt32) -> Void)?
     var onFontSizeChanged: ((CGFloat) -> Void)?
@@ -222,6 +228,25 @@ final class SettingsViewModel: ObservableObject {
         cloudStatusMessage = trimmed.isEmpty ? "Ключ пустой." : "Ключ сохранён локально."
     }
 
+    func recordGoogleCloudSuccess() {
+        googleCloudDiagnosticTitle = "Google Cloud API worked"
+        googleCloudDiagnosticDetail = "The latest cloud translation completed successfully."
+        googleCloudDiagnosticUpdatedAt = Self.diagnosticTimestamp()
+    }
+
+    func recordGoogleCloudFailure(_ message: String) {
+        googleCloudDiagnosticTitle = "Google Cloud API failed"
+        googleCloudDiagnosticDetail = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? "The request failed, but no additional error text was returned." : message
+        googleCloudDiagnosticUpdatedAt = Self.diagnosticTimestamp()
+    }
+
+    func clearGoogleCloudDiagnostics() {
+        googleCloudDiagnosticTitle = "No recent Google Cloud errors"
+        googleCloudDiagnosticDetail = "When Google Cloud fails, the latest reason appears here."
+        googleCloudDiagnosticUpdatedAt = "Not yet updated"
+    }
+
     private func conflictMessage(for candidate: HotKeyBinding) -> String? {
         if candidate.modifiers == 0 {
             return "Добавьте хотя бы один модификатор (⌘, ⇧, ⌥ или ⌃)."
@@ -241,6 +266,18 @@ final class SettingsViewModel: ObservableObject {
     private static func clampFontSize(_ value: Int) -> Int {
         min(max(value, 12), 24)
     }
+
+    private static func diagnosticTimestamp() -> String {
+        Self.diagnosticFormatter.string(from: Date())
+    }
+
+    private static let diagnosticFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
 
 }
 

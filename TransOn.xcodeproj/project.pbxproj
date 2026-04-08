@@ -15,6 +15,7 @@
 		4931BF24AF08F300BB4D4A2A /* MenuBarControl.png in Resources */ = {isa = PBXBuildFile; fileRef = 5041587DC6A0C6AF64830880 /* MenuBarControl.png */; };
 		4AEAED017C4E2C2F3482455B /* SettingsGlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4B5AA58125FE40E85F3451 /* SettingsGlassStyle.swift */; };
 		5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */; };
+		6207B13306C6B028FBB6AC31 /* DiagnosticsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FED3D37F44BAB403EBFA1710 /* DiagnosticsSettingsView.swift */; };
 		A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */; };
 		A73A24DB660D33625D2E7233 /* TransOnControlsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A758C1EB52B011FD722DB1A9 /* TranslationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34DCFDD8418DEC47CF626DE0 /* TranslationSettingsView.swift */; };
@@ -64,6 +65,7 @@
 		B94A1A7FCD892D5D8AE2C9C8 /* TransOnControlsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TransOnControlsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D00F7B3A4EA1A5BC8DA0A768 /* TransOnControlsExtensionBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransOnControlsExtensionBundle.swift; sourceTree = "<group>"; };
 		F379C31424C9A200360B4E21 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		FED3D37F44BAB403EBFA1710 /* DiagnosticsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -72,6 +74,7 @@
 			children = (
 				22895236042B23066CF05C22 /* AppCore.swift */,
 				B1AE743A3BF3A0C9B3984776 /* ControlCenterShared.swift */,
+				FED3D37F44BAB403EBFA1710 /* DiagnosticsSettingsView.swift */,
 				4EA4F110D4F2992320630557 /* GeneralSettingsView.swift */,
 				190F6A95A118CA1782B809A3 /* PreferencesView.swift */,
 				6DCD20DEDF2C8AEAE2D8DD5F /* PrivacySettingsView.swift */,
@@ -219,6 +222,7 @@
 			files = (
 				B85D72EBB4C9C4A57AD9E8C2 /* AppCore.swift in Sources */,
 				ECC435F6BD0A16D04F9EBB43 /* ControlCenterShared.swift in Sources */,
+				6207B13306C6B028FBB6AC31 /* DiagnosticsSettingsView.swift in Sources */,
 				5EEE6E3380C791C84F96979E /* GeneralSettingsView.swift in Sources */,
 				E8760771FA247744815D20CE /* PreferencesView.swift in Sources */,
 				A497A8F97E1D7E1B0120390B /* PrivacySettingsView.swift in Sources */,
