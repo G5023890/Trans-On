@@ -33,10 +33,12 @@ Provider switch is available in:
 
 ## Recent changes
 
-- Added `Local OPUS-MT` as a third translation engine.
-- Added a local helper target that downloads OPUS-MT models into Application Support and runs them offline.
-- Added local helper preparation/status UI in Translation settings and a status menu in the overlay.
-- Kept the Google Cloud diagnostics tab and synced the build pipeline so the helper is embedded in app bundles.
+- Added `Local OPUS-MT` as a third translation engine with a local helper and downloadable model cache.
+- Added a dedicated `TransOnTranslationHelper` target and embedded it into the app bundle during the build.
+- Added local helper preparation, status, and cache-size UI in Translation settings.
+- Added a translation-engine status menu in the overlay so the engine can be switched from the floating window.
+- Added fallback behavior for local translation failures so the app can fall back to `Google Web (gtx)` and then mobile web.
+- Kept the Google Cloud diagnostics tab and synced the build pipeline, version numbers, README, and changelog.
 
 ## Versioning
 
@@ -70,7 +72,7 @@ export GOOGLE_API_KEY="YOUR_API_KEY"
 open TransOn.xcodeproj
 ```
 
-For local installable builds with the embedded Control Center extension, use the build script below. The Swift package manifest remains in the repo for source organization, but the app is built as an Xcode project.
+For local installable builds with the embedded Control Center extension, use the build script below. The app is built as an Xcode project.
 
 ## Build and install
 
