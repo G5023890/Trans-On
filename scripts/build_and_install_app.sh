@@ -8,8 +8,8 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Dev
 
 APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Trans-On}"
 BUNDLE_ID="${BUNDLE_ID:-com.grigorym.TransOn}"
-APP_VERSION="${APP_VERSION:-1.0.1}"
-APP_BUILD="${APP_BUILD:-2}"
+APP_VERSION="${APP_VERSION:-1.0.2}"
+APP_BUILD="${APP_BUILD:-3}"
 APP_DIR="${APP_DIR:-dist/${APP_DISPLAY_NAME}.app}"
 INSTALL_DIR="${INSTALL_DIR:-/Applications/${APP_DISPLAY_NAME}.app}"
 LEGACY_INSTALL_DIR="${LEGACY_INSTALL_DIR:-/Applications/SelectedTextOverlay.app}"

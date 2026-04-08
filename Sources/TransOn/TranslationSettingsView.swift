@@ -7,6 +7,7 @@ struct TranslationSettingsView: View {
 
     @State private var googleCloudApiKeyText: String = ""
     @State private var testState: TestState = .idle
+    @State private var localModelState: TestState = .idle
 
     private enum TestState {
         case idle
@@ -28,10 +29,17 @@ struct TranslationSettingsView: View {
                     engineRow(.googleWeb, subtitle: "(gtx)")
                     GlassDivider(palette: palette)
                     engineRow(.googleAPI, subtitle: nil)
+                    GlassDivider(palette: palette)
+                    engineRow(.nativeLocal, subtitle: "(offline)")
                 }
 
                 if isGoogleCloudEngine {
                     apiKeyBlock
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                if isLocalEngine {
+                    localHelperBlock
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
@@ -49,6 +57,13 @@ struct TranslationSettingsView: View {
                         .foregroundStyle(palette.secondaryText)
                         .padding(.leading, 2)
                 }
+
+                if isLocalEngine, !viewModel.localTranslationStatusMessage.isEmpty {
+                    Text(viewModel.localTranslationStatusMessage)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(palette.secondaryText)
+                        .padding(.leading, 2)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
@@ -59,6 +74,7 @@ struct TranslationSettingsView: View {
         .scrollIndicators(.never)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.easeInOut(duration: 0.18), value: isGoogleCloudEngine)
+        .animation(.easeInOut(duration: 0.18), value: isLocalEngine)
         .onAppear {
             if TranslationEngine(rawValue: translationEngineRaw) == nil {
                 translationEngineRaw = TranslationEngine.googleWeb.rawValue
@@ -67,6 +83,12 @@ struct TranslationSettingsView: View {
 
             if googleCloudApiKeyText.isEmpty {
                 googleCloudApiKeyText = AppSettings.shared.googleCloudApiKey
+            }
+
+            if isLocalEngine {
+                Task { @MainActor in
+                    _ = await viewModel.refreshLocalTranslationStatus()
+                }
             }
         }
         .onChange(of: translationEngineRaw) { _, newValue in
@@ -77,6 +99,13 @@ struct TranslationSettingsView: View {
             }
             AppSettings.shared.setTranslationEngine(engine)
             testState = .idle
+            localModelState = .idle
+
+            if engine == .nativeLocal {
+                Task { @MainActor in
+                    _ = await viewModel.refreshLocalTranslationStatus()
+                }
+            }
         }
         .onChange(of: googleCloudApiKeyText) { _, newValue in
             let sanitized = sanitizeAPIKey(newValue)
@@ -194,6 +223,68 @@ struct TranslationSettingsView: View {
         )
     }
 
+    private var localHelperBlock: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.orange.opacity(0.95), Color.yellow.opacity(0.35)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 3)
+                .padding(.vertical, 5)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Local OPUS-MT helper")
+                    .font(.system(size: 11, weight: .semibold))
+                    .kerning(1.0)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.orange.opacity(0.92))
+
+                Text("Downloads OPUS-MT models into Application Support and runs them locally. English is translated directly; Hebrew pivots through English.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(palette.primaryText.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(alignment: .center, spacing: 8) {
+                    Button(action: prepareLocalModels) {
+                        localButtonContent
+                    }
+                    .buttonStyle(GlassButtonStyle(palette: palette, prominent: true, tint: localButtonTint))
+                    .disabled(localModelState == .testing)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cache: \(viewModel.localTranslationCacheDisplay)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(palette.secondaryText)
+
+                        Text("No account, no card, no cloud dependency.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(palette.secondaryText.opacity(0.84))
+                    }
+                }
+
+                if !viewModel.localTranslationDetail.isEmpty {
+                    Text(viewModel.localTranslationDetail)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(palette.secondaryText.opacity(0.88))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .background(palette.apiCardFill)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(palette.apiCardStroke, lineWidth: 1)
+        )
+    }
+
     @ViewBuilder
     private var testButtonContent: some View {
         switch testState {
@@ -203,6 +294,20 @@ struct TranslationSettingsView: View {
             Text("Testing...")
         case .valid:
             Label("Valid", systemImage: "checkmark")
+        case .invalid:
+            Label("Failed", systemImage: "xmark")
+        }
+    }
+
+    @ViewBuilder
+    private var localButtonContent: some View {
+        switch localModelState {
+        case .idle:
+            Text("Prepare / Update")
+        case .testing:
+            Text("Working...")
+        case .valid:
+            Label("Ready", systemImage: "checkmark")
         case .invalid:
             Label("Failed", systemImage: "xmark")
         }
@@ -219,8 +324,23 @@ struct TranslationSettingsView: View {
         }
     }
 
+    private var localButtonTint: Color {
+        switch localModelState {
+        case .valid:
+            return .green
+        case .invalid:
+            return .red
+        default:
+            return .orange
+        }
+    }
+
     private var isGoogleCloudEngine: Bool {
         translationEngineRaw == TranslationEngine.googleAPI.rawValue
+    }
+
+    private var isLocalEngine: Bool {
+        translationEngineRaw == TranslationEngine.nativeLocal.rawValue
     }
 
     private func testAPIKey() {
@@ -253,6 +373,14 @@ struct TranslationSettingsView: View {
             if candidate == googleCloudApiKeyText {
                 testState = .idle
             }
+        }
+    }
+
+    private func prepareLocalModels() {
+        localModelState = .testing
+        Task { @MainActor in
+            let status = await viewModel.prepareLocalTranslationModels()
+            localModelState = status.ready ? .valid : .invalid
         }
     }
 

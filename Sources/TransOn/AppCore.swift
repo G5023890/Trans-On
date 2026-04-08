@@ -42,6 +42,7 @@ struct HotKeyChoice {
 enum TranslationEngine: String, CaseIterable, Identifiable {
     case googleAPI
     case googleWeb
+    case nativeLocal
 
     var id: String { rawValue }
 
@@ -51,6 +52,8 @@ enum TranslationEngine: String, CaseIterable, Identifiable {
             return "Google Cloud API"
         case .googleWeb:
             return "Google Web"
+        case .nativeLocal:
+            return "Local OPUS-MT"
         }
     }
 }
@@ -59,6 +62,7 @@ enum TranslationBackendVariant: Hashable {
     case googleWebGtx
     case googleCloudAPI
     case googleMobileWeb
+    case localOpusMt
 
     var displayText: String {
         switch self {
@@ -68,6 +72,8 @@ enum TranslationBackendVariant: Hashable {
             return "Google Cloud API"
         case .googleMobileWeb:
             return "Google Web • mobile"
+        case .localOpusMt:
+            return "Local OPUS-MT"
         }
     }
 }
@@ -402,6 +408,114 @@ final class EscapeTextView: NSTextView {
     }
 }
 
+final class TranslationStatusControl: NSControl {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let chevronView = NSImageView()
+    private var trackingArea: NSTrackingArea?
+    private var isHovered = false {
+        didSet { updateAppearance() }
+    }
+
+    var menuProvider: (() -> NSMenu?)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 11
+        layer?.masksToBounds = true
+
+        titleLabel.textColor = .white.withAlphaComponent(0.76)
+        titleLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let chevronImage = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
+        chevronView.image = chevronImage
+        chevronView.contentTintColor = .white.withAlphaComponent(0.62)
+        chevronView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        chevronView.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [titleLabel, chevronView])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 5
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+
+            chevronView.widthAnchor.constraint(equalToConstant: 10),
+            chevronView.heightAnchor.constraint(equalToConstant: 10)
+        ])
+
+        updateAppearance()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: NSSize {
+        let labelWidth = titleLabel.intrinsicContentSize.width
+        return NSSize(width: labelWidth + 10 + 10 + 5 + 20, height: 26)
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        if let trackingArea {
+            addTrackingArea(trackingArea)
+        }
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        showMenu()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    func setTitleText(_ text: String) {
+        let sanitized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        titleLabel.stringValue = sanitized
+        toolTip = sanitized
+        invalidateIntrinsicContentSize()
+    }
+
+    private func showMenu() {
+        guard let menu = menuProvider?(), !menu.items.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.maxX - 2, y: bounds.maxY), in: self)
+    }
+
+    private func updateAppearance() {
+        layer?.backgroundColor = (isHovered ? NSColor.white : NSColor.white)
+            .withAlphaComponent(isHovered ? 0.13 : 0.07)
+            .cgColor
+        titleLabel.textColor = .white.withAlphaComponent(isHovered ? 0.92 : 0.76)
+        chevronView.contentTintColor = .white.withAlphaComponent(isHovered ? 0.82 : 0.62)
+    }
+}
+
 final class OverlayView: NSView {
     private let textView = EscapeTextView()
     private let scrollView = NSScrollView()
@@ -410,7 +524,7 @@ final class OverlayView: NSView {
     private let loadingLabel = NSTextField(labelWithString: "Идет перевод")
     private let statusBar = NSView()
     private let statusSeparator = NSView()
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let statusControl = TranslationStatusControl(frame: .zero)
     private var loadingTimer: Timer?
     private var loadingBaseMessage = "Идет перевод"
     private var loadingDotFrame = 0
@@ -466,14 +580,10 @@ final class OverlayView: NSView {
         statusSeparator.wantsLayer = true
         statusSeparator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.09).cgColor
 
-        statusLabel.textColor = .white.withAlphaComponent(0.72)
-        statusLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
-        statusLabel.alignment = .right
-        statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusControl.translatesAutoresizingMaskIntoConstraints = false
 
         statusBar.addSubview(statusSeparator)
-        statusBar.addSubview(statusLabel)
+        statusBar.addSubview(statusControl)
 
         loadingContainer.addSubview(loadingIndicator)
         loadingContainer.addSubview(loadingLabel)
@@ -510,9 +620,10 @@ final class OverlayView: NSView {
             loadingLabel.leadingAnchor.constraint(greaterThanOrEqualTo: loadingContainer.leadingAnchor, constant: 20),
             loadingLabel.trailingAnchor.constraint(lessThanOrEqualTo: loadingContainer.trailingAnchor, constant: -20),
 
-            statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: statusBar.leadingAnchor, constant: 16),
-            statusLabel.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -16)
+            statusControl.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            statusControl.leadingAnchor.constraint(greaterThanOrEqualTo: statusBar.leadingAnchor, constant: 16),
+            statusControl.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -16),
+            statusControl.heightAnchor.constraint(equalToConstant: 26)
         ])
     }
 
@@ -541,8 +652,12 @@ final class OverlayView: NSView {
 
     func updateStatusText(_ text: String?) {
         let sanitized = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        statusLabel.stringValue = sanitized
-        statusLabel.isHidden = sanitized.isEmpty
+        statusControl.setTitleText(sanitized)
+        statusControl.isHidden = sanitized.isEmpty
+    }
+
+    func configureStatusMenuProvider(_ provider: @escaping () -> NSMenu?) {
+        statusControl.menuProvider = provider
     }
 
     private func startLoadingAnimation(message: String) {
@@ -593,11 +708,16 @@ final class OverlayView: NSView {
     }
 }
 
-final class OverlayController {
+final class OverlayController: NSObject {
     private let panel: OverlayPanel
     private let content: OverlayView
+    private lazy var translationMenuEngines: [TranslationEngine] = [
+        .googleWeb,
+        .googleAPI,
+        .nativeLocal
+    ]
 
-    init() {
+    override init() {
         let rect = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1000, height: 700)
         let width = min(1000, rect.width * 0.8)
         let height = min(500, rect.height * 0.5)
@@ -625,6 +745,12 @@ final class OverlayController {
         panel.contentView?.wantsLayer = true
         panel.contentView?.layer?.cornerRadius = 18
         panel.contentView?.layer?.masksToBounds = true
+
+        super.init()
+
+        content.configureStatusMenuProvider { [weak self] in
+            self?.makeTranslationEngineMenu()
+        }
     }
 
     func show(text: String, statusText: String? = nil) {
@@ -649,6 +775,30 @@ final class OverlayController {
 
     func setFontSize(_ size: CGFloat) {
         content.setFontSize(size)
+    }
+
+    private func makeTranslationEngineMenu() -> NSMenu {
+        let menu = NSMenu()
+        let currentEngine = AppSettings.shared.translationEngine
+
+        for engine in translationMenuEngines {
+            let item = NSMenuItem(title: engine.title, action: #selector(selectTranslationEngine(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = engine
+            item.state = engine == currentEngine ? .on : .off
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    @objc private func selectTranslationEngine(_ sender: NSMenuItem) {
+        guard let engine = sender.representedObject as? TranslationEngine else {
+            return
+        }
+
+        AppSettings.shared.setTranslationEngine(engine)
+        content.updateStatusText(engine.title)
     }
 }
 
@@ -797,6 +947,8 @@ final class TranslationService {
             return TranslationBackendVariant.googleCloudAPI.displayText
         case .googleWeb:
             return TranslationBackendVariant.googleWebGtx.displayText
+        case .nativeLocal:
+            return TranslationBackendVariant.localOpusMt.displayText
         }
     }
 
@@ -1182,6 +1334,44 @@ final class TranslationService {
                     }
                     self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
                 }
+            }
+        case .nativeLocal:
+            requestNativeLocalBatchTranslation(for: paragraphs) { [weak self] result in
+                guard let self else {
+                    completion(result)
+                    return
+                }
+
+                if let result {
+                    completion(result)
+                    return
+                }
+
+                NSLog("Local OPUS-MT helper failed, falling back to Google Web (gtx).")
+                self.requestWebGtxBatchTranslation(for: paragraphs) { gtxResult in
+                    if let gtxResult {
+                        completion(gtxResult)
+                        return
+                    }
+                    self.requestGoogleMobileWebBatchTranslation(for: paragraphs, completion: completion)
+                }
+            }
+        }
+    }
+
+    private func requestNativeLocalBatchTranslation(for paragraphs: [String], completion: @escaping (BatchTranslationResult?) -> Void) {
+        Task(priority: .userInitiated) { [paragraphs] in
+            do {
+                let result = try await LocalTranslationClient.shared.translateBatch(texts: paragraphs)
+                let texts = result.texts
+                guard texts.count == paragraphs.count else {
+                    completion(nil)
+                    return
+                }
+                completion(BatchTranslationResult(texts: texts, backend: .localOpusMt))
+            } catch {
+                NSLog("Local OPUS-MT translation failed: \(error.localizedDescription)")
+                completion(nil)
             }
         }
     }

@@ -124,6 +124,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var googleCloudDiagnosticTitle: String = "No recent Google Cloud errors"
     @Published var googleCloudDiagnosticDetail: String = "When Google Cloud fails, the latest reason appears here."
     @Published var googleCloudDiagnosticUpdatedAt: String = "Not yet updated"
+    @Published var localTranslationStatusMessage: String = ""
+    @Published var localTranslationDetail: String = "Prepare the helper to download and convert OPUS-MT models."
+    @Published var localTranslationCacheDisplay: String = "Not checked yet"
 
     var onHotKeyChanged: ((UInt32, UInt32) -> Void)?
     var onFontSizeChanged: ((CGFloat) -> Void)?
@@ -247,6 +250,22 @@ final class SettingsViewModel: ObservableObject {
         googleCloudDiagnosticUpdatedAt = "Not yet updated"
     }
 
+    func refreshLocalTranslationStatus() async -> LocalTranslationStatus {
+        let status = await LocalTranslationClient.shared.fetchStatus()
+        localTranslationStatusMessage = status.summary
+        localTranslationDetail = status.detail
+        localTranslationCacheDisplay = Self.formatBytes(status.cacheBytes)
+        return status
+    }
+
+    func prepareLocalTranslationModels() async -> LocalTranslationStatus {
+        let status = await LocalTranslationClient.shared.prepareModels()
+        localTranslationStatusMessage = status.summary
+        localTranslationDetail = status.detail
+        localTranslationCacheDisplay = Self.formatBytes(status.cacheBytes)
+        return status
+    }
+
     private func conflictMessage(for candidate: HotKeyBinding) -> String? {
         if candidate.modifiers == 0 {
             return "Добавьте хотя бы один модификатор (⌘, ⇧, ⌥ или ⌃)."
@@ -265,6 +284,14 @@ final class SettingsViewModel: ObservableObject {
 
     private static func clampFontSize(_ value: Int) -> Int {
         min(max(value, 12), 24)
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return "0 MB" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     private static func diagnosticTimestamp() -> String {
