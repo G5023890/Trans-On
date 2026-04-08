@@ -25,6 +25,7 @@
   - `Google Web (gtx)`,
   - `Google Cloud API`.
 - Google Cloud API key input in menu (`Google Cloud API key…`), stored in macOS Keychain.
+- Diagnostics tab for the latest Google Cloud API failure reason and timestamp.
 
 ## Translation reliability behavior
 - Text is split into semantic paragraphs.

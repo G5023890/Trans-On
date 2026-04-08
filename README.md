@@ -2,6 +2,8 @@
 
 Trans-On is a macOS menu bar app that captures selected text and translates it to Russian.
 
+Current version: `1.0.1`
+
 ## What the app does
 
 - Uses a global hotkey to copy selected text from the active app.
@@ -25,6 +27,24 @@ Provider switch is available in:
 
 - `Menu bar icon -> Translation Method -> Google Web (gtx)` (unofficial endpoint)
 - `Menu bar icon -> Translation Method -> Google Cloud API` (official API)
+
+## Recent changes
+
+- Added a `Diagnostics` tab that stores the latest Google Cloud API failure reason and timestamp.
+- Google Cloud API failures now surface in the Translation settings instead of looking like a successful `Google Web` translation.
+- Removed the offline/Bergamot translation path; the app now keeps only the two online translation providers.
+
+## Versioning
+
+- Marketing version: `1.0.1`
+- Build number: `2`
+- Version values are kept in sync across the Xcode project, app plist files, and the build script defaults.
+
+## Project status
+
+- Translation is online-only.
+- Current providers are `Google Web (gtx)` and `Google Cloud API`.
+- `Google Web (gtx)` remains the fallback path when cloud translation fails or no API key is available.
 
 ### Google Cloud API key
 
