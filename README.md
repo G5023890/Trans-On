@@ -1,6 +1,7 @@
 # Trans-On
 
 Trans-On is a macOS menu bar app that captures selected text and translates it to Russian.
+It supports both online translation and offline translation through `Local OPUS-MT`.
 
 Current version: `1.0.2`
 
@@ -9,7 +10,7 @@ Current version: `1.0.2`
 - Uses a global hotkey to copy selected text from the active app.
 - If the text is not already Russian, tries to translate it to Russian.
 - Shows the result in a floating semi-transparent overlay window.
-- Supports an offline `Local OPUS-MT` translation engine with a downloadable model cache.
+- Supports offline translation with `Local OPUS-MT` and a downloadable model cache.
 - Closes the overlay with `Esc`.
 
 ## Hotkey
@@ -48,6 +49,7 @@ Provider switch is available in:
 
 - Translation supports both online and local modes.
 - Current providers are `Google Web (gtx)`, `Google Cloud API`, and `Local OPUS-MT`.
+- `Local OPUS-MT` works offline after the model cache is prepared.
 - `Google Web (gtx)` remains the fallback path when cloud translation fails or the local helper is unavailable.
 
 ### Google Cloud API key
